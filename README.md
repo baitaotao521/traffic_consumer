@@ -197,7 +197,7 @@ python traffic_consumer.py --interval 60 -c 100
 python traffic_consumer.py --cron "0 2 * * *" --traffic-limit 200
 ```
 
-16. 每30分钟消耗50MB流量（达到后自动停止，等待下次执行）:
+16. 每30分钟消耗50MB流量（达到后自动停止，等待下一次执行）:
 
 ```bash
 python traffic_consumer.py --interval 30 --traffic-limit 50
@@ -213,6 +213,12 @@ python traffic_consumer.py --cron "0 9-18 * * 1-5" --traffic-limit 100 -l 2
 
 ```bash
 python traffic_consumer.py --interval 60 --traffic-limit 200 -t 16 --config "hourly_task" --save-config
+```
+
+19. 实时显示间隔执行状态（显示当前状态和下一次执行的倒计时）:
+
+```bash
+python traffic_consumer.py --interval 15 --traffic-limit 20
 ```
 
 ## 注意事项

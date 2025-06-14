@@ -95,6 +95,10 @@ class TrafficConsumer:
         # 历史统计数据
         self.history = []
         
+        # 状态
+        self.status = "初始化"
+        self.next_run_time = None
+        
     def download_file(self, thread_id):
         """单个线程的下载函数"""
         session = requests.Session()
@@ -126,9 +130,16 @@ class TrafficConsumer:
                                     # 检查是否达到流量限制
                                     if self.traffic_limit is not None:
                                         if self.total_bytes >= self.traffic_limit * 1024 * 1024:  # 转换为字节
-                                            print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB，停止下载{Style.RESET_ALL}")
-                                            self.active = False
-                                            break
+                                            print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB{Style.RESET_ALL}")
+                                            if self.interval or self.cron_expr:
+                                                self.status = "等待下次执行"
+                                                print(f"{Fore.CYAN}等待下次执行...{Style.RESET_ALL}")
+                                                self.active = False
+                                                break
+                                            else:
+                                                print(f"{Fore.YELLOW}停止下载{Style.RESET_ALL}")
+                                                self.active = False
+                                                break
                                 
                                 time.sleep(0.1)  # 限制下载速度
                 else:
@@ -143,17 +154,31 @@ class TrafficConsumer:
                             # 检查是否达到流量限制
                             if self.traffic_limit is not None:
                                 if self.total_bytes >= self.traffic_limit * 1024 * 1024:  # 转换为字节
-                                    print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB，停止下载{Style.RESET_ALL}")
-                                    self.active = False
-                                    break
+                                    print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB{Style.RESET_ALL}")
+                                    if self.interval or self.cron_expr:
+                                        self.status = "等待下次执行"
+                                        print(f"{Fore.CYAN}等待下次执行...{Style.RESET_ALL}")
+                                        self.active = False
+                                        break
+                                    else:
+                                        print(f"{Fore.YELLOW}停止下载{Style.RESET_ALL}")
+                                        self.active = False
+                                        break
                 
                 # 检查是否达到下载次数限制
                 if self.count is not None:
                     with self.lock:
                         if self.download_count >= self.count:
-                            print(f"\n{Fore.YELLOW}已达到下载次数限制 {self.count}，停止下载{Style.RESET_ALL}")
-                            self.active = False
-                            break
+                            print(f"\n{Fore.YELLOW}已达到下载次数限制 {self.count}{Style.RESET_ALL}")
+                            if self.interval or self.cron_expr:
+                                self.status = "等待下次执行"
+                                print(f"{Fore.CYAN}等待下次执行...{Style.RESET_ALL}")
+                                self.active = False
+                                break
+                            else:
+                                print(f"{Fore.YELLOW}停止下载{Style.RESET_ALL}")
+                                self.active = False
+                                break
                             
             except Exception as e:
                 print(f"{Fore.RED}线程 {thread_id} 下载出错: {e}{Style.RESET_ALL}")
@@ -175,8 +200,14 @@ class TrafficConsumer:
             total_str = self.format_bytes(current_bytes)
             speed_str = self.format_bytes(speed) + "/s"
             
+            # 显示流量限制进度
+            traffic_limit_str = ""
+            if self.traffic_limit is not None:
+                progress = min(100, self.total_bytes / (self.traffic_limit * 1024 * 1024) * 100)
+                traffic_limit_str = f" | 流量限制: {progress:.1f}% ({total_str}/{self.format_bytes(self.traffic_limit * 1024 * 1024)})"
+            
             # 显示统计信息
-            sys.stdout.write(f"\r{Fore.GREEN}已消耗: {total_str} | 速度: {speed_str} | "
+            sys.stdout.write(f"\r{Fore.GREEN}已消耗: {total_str} | 速度: {speed_str}{traffic_limit_str} | "
                             f"运行时间: {timedelta(seconds=int(elapsed_time))} | "
                             f"下载次数: {self.download_count}{Style.RESET_ALL}")
             sys.stdout.flush()
@@ -208,6 +239,11 @@ class TrafficConsumer:
         print(f"{Fore.CYAN}总运行时间: {timedelta(seconds=int(elapsed_time))}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}总下载次数: {self.download_count}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}统计数据已保存到: {STATS_FILE}{Style.RESET_ALL}")
+        
+        # 如果有下一次执行时间，显示它
+        if self.next_run_time:
+            next_run = self.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+            print(f"{Fore.CYAN}下一次执行时间: {next_run}{Style.RESET_ALL}")
 
     def format_bytes(self, bytes_value):
         """格式化字节数为可读字符串"""
@@ -274,7 +310,9 @@ class TrafficConsumer:
             "limit_speed": self.limit_speed,
             "duration": self.duration,
             "count": self.count,
-            "cron_expr": self.cron_expr
+            "cron_expr": self.cron_expr,
+            "traffic_limit": self.traffic_limit,
+            "interval": self.interval
         }
         
         # 保存配置
@@ -410,25 +448,37 @@ class TrafficConsumer:
         self.scheduler = BackgroundScheduler()
         
         # 添加任务
-        self.scheduler.add_job(
+        job = self.scheduler.add_job(
             self.scheduled_run,
             CronTrigger.from_crontab(self.cron_expr)
         )
+        
+        # 获取下一次执行时间
+        self.next_run_time = job.next_run_time
         
         # 启动调度器
         self.scheduler.start()
         
         print(f"{Fore.CYAN}已设置Cron调度: {self.cron_expr}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}下一次执行时间: {self.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}程序将在后台运行，按Ctrl+C停止{Style.RESET_ALL}")
         
         # 设置信号处理
         signal.signal(signal.SIGINT, self.handle_signal)
         signal.signal(signal.SIGTERM, self.handle_signal)
         
+        # 更新状态
+        self.status = "等待执行"
+        
         # 保持主线程运行
         try:
             while True:
                 time.sleep(1)
+                # 每分钟更新一次状态显示
+                if datetime.now().second == 0:
+                    remaining = self.next_run_time - datetime.now()
+                    remaining_str = str(remaining).split('.')[0]  # 移除毫秒
+                    print(f"\r{Fore.CYAN}状态: {self.status} | 距离下次执行还有: {remaining_str}{Style.RESET_ALL}", end='')
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}接收到中断信号，正在停止调度器...{Style.RESET_ALL}")
             self.scheduler.shutdown()
@@ -444,6 +494,9 @@ class TrafficConsumer:
         """定时执行的任务"""
         print(f"\n{Fore.CYAN}[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始定时任务{Style.RESET_ALL}")
         
+        # 更新状态
+        self.status = "正在执行"
+        
         # 创建新的消费器实例并运行
         consumer = TrafficConsumer(
             url=self.url,
@@ -452,10 +505,29 @@ class TrafficConsumer:
             duration=self.duration,
             count=self.count,
             traffic_limit=self.traffic_limit,
-            interval=self.interval,
+            interval=None,  # 不传递interval，避免嵌套调度
             config_name=self.config_name
         )
         consumer.start()
+        
+        # 更新下一次执行时间
+        if self.interval:
+            # 对于interval触发器，直接计算下一次执行时间
+            self.next_run_time = datetime.now() + timedelta(minutes=self.interval)
+        elif self.cron_expr:
+            # 对于cron触发器，尝试从调度器获取下一次执行时间
+            try:
+                # 使用cron表达式计算下一次执行时间
+                cron_trigger = CronTrigger.from_crontab(self.cron_expr)
+                self.next_run_time = cron_trigger.get_next_fire_time(None, datetime.now())
+            except Exception as e:
+                print(f"{Fore.YELLOW}无法计算下一次执行时间: {e}{Style.RESET_ALL}")
+        
+        # 更新状态
+        self.status = "等待下次执行"
+        print(f"{Fore.CYAN}任务完成，等待下次执行...{Style.RESET_ALL}")
+        if self.next_run_time:
+            print(f"{Fore.CYAN}下一次执行时间: {self.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
     
     def start(self):
         """启动流量消耗器"""
@@ -463,9 +535,15 @@ class TrafficConsumer:
         if self.cron_expr:
             self.setup_scheduler()
             return
+            
+        # 如果设置了间隔时间
+        if self.interval:
+            self.setup_interval_scheduler()
+            return
         
         self.active = True
         self.start_time = time.time()
+        self.status = "正在执行"
         
         print(f"{Fore.CYAN}流量消耗器启动{Style.RESET_ALL}")
         print(f"{Fore.CYAN}URL: {self.url}{Style.RESET_ALL}")
@@ -480,6 +558,8 @@ class TrafficConsumer:
             print(f"{Fore.CYAN}持续时间: {timedelta(seconds=self.duration)}{Style.RESET_ALL}")
         elif self.count:
             print(f"{Fore.CYAN}下载次数: {self.count}{Style.RESET_ALL}")
+        elif self.traffic_limit:
+            print(f"{Fore.CYAN}流量限制: {self.traffic_limit} MB{Style.RESET_ALL}")
         else:
             print(f"{Fore.CYAN}持续时间: 无限制 (按Ctrl+C停止){Style.RESET_ALL}")
         
@@ -518,6 +598,54 @@ class TrafficConsumer:
         self.save_config()
         
         print(f"{Fore.CYAN}流量消耗器已停止{Style.RESET_ALL}")
+
+    def setup_interval_scheduler(self):
+        """设置基于间隔的调度器"""
+        if not self.interval:
+            return
+            
+        self.scheduler = BackgroundScheduler()
+        
+        # 添加任务，从当前时间开始，每隔interval分钟执行一次
+        job = self.scheduler.add_job(
+            self.scheduled_run,
+            'interval',
+            minutes=self.interval
+        )
+        
+        # 获取下一次执行时间 - 修复错误
+        self.next_run_time = datetime.now() + timedelta(minutes=self.interval)
+        
+        # 启动调度器
+        self.scheduler.start()
+        
+        print(f"{Fore.CYAN}已设置间隔调度: 每{self.interval}分钟执行一次{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}下一次执行时间: {self.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}程序将在后台运行，按Ctrl+C停止{Style.RESET_ALL}")
+        
+        # 设置信号处理
+        signal.signal(signal.SIGINT, self.handle_signal)
+        signal.signal(signal.SIGTERM, self.handle_signal)
+        
+        # 更新状态
+        self.status = "等待执行"
+        
+        # 保持主线程运行
+        try:
+            while True:
+                time.sleep(1)
+                # 每分钟更新一次状态显示
+                if datetime.now().second == 0:
+                    remaining = self.next_run_time - datetime.now()
+                    remaining_str = str(remaining).split('.')[0]  # 移除毫秒
+                    print(f"\r{Fore.CYAN}状态: {self.status} | 距离下次执行还有: {remaining_str}{Style.RESET_ALL}", end='')
+                    
+                    # 检查是否需要更新下一次执行时间
+                    if datetime.now() >= self.next_run_time:
+                        self.next_run_time = datetime.now() + timedelta(minutes=self.interval)
+        except KeyboardInterrupt:
+            print(f"\n{Fore.YELLOW}接收到中断信号，正在停止调度器...{Style.RESET_ALL}")
+            self.scheduler.shutdown()
 
 
 def parse_args():
