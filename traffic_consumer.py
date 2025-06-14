@@ -52,6 +52,7 @@ from colorama import Fore, Style, init
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+import http.client  # 添加导入http.client模块
 
 # 初始化colorama
 init(autoreset=True)
@@ -180,6 +181,14 @@ class TrafficConsumer:
                                 self.active = False
                                 break
                             
+            except http.client.IncompleteRead as e:
+                # 处理IncompleteRead异常，记录已下载的部分数据
+                with self.lock:
+                    partial_size = len(e.partial)
+                    self.total_bytes += partial_size
+                    self.download_count += 1
+                    print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据{Style.RESET_ALL}")
+                time.sleep(1)  # 出错后暂停一下
             except Exception as e:
                 print(f"{Fore.RED}线程 {thread_id} 下载出错: {e}{Style.RESET_ALL}")
                 time.sleep(1)  # 出错后暂停一下
@@ -461,7 +470,7 @@ class TrafficConsumer:
         
         print(f"{Fore.CYAN}已设置Cron调度: {self.cron_expr}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}下一次执行时间: {self.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}程序将在后台运行，按Ctrl+C停止{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}程序将实时显示状态，按Ctrl+C停止{Style.RESET_ALL}")
         
         # 设置信号处理
         signal.signal(signal.SIGINT, self.handle_signal)
@@ -470,15 +479,21 @@ class TrafficConsumer:
         # 更新状态
         self.status = "等待执行"
         
-        # 保持主线程运行
+        # 保持主线程运行，同时实时显示状态
         try:
             while True:
+                # 计算剩余时间
+                remaining = self.next_run_time - datetime.now()
+                
+                # 格式化剩余时间
+                remaining_str = str(remaining).split('.')[0]  # 移除毫秒
+                
+                # 显示状态和倒计时
+                status_msg = f"{Fore.CYAN}状态: {self.status} | 距离下次执行还有: {remaining_str}{Style.RESET_ALL}"
+                sys.stdout.write(f"\r{status_msg}")
+                sys.stdout.flush()
+                
                 time.sleep(1)
-                # 每分钟更新一次状态显示
-                if datetime.now().second == 0:
-                    remaining = self.next_run_time - datetime.now()
-                    remaining_str = str(remaining).split('.')[0]  # 移除毫秒
-                    print(f"\r{Fore.CYAN}状态: {self.status} | 距离下次执行还有: {remaining_str}{Style.RESET_ALL}", end='')
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}接收到中断信号，正在停止调度器...{Style.RESET_ALL}")
             self.scheduler.shutdown()
@@ -621,7 +636,7 @@ class TrafficConsumer:
         
         print(f"{Fore.CYAN}已设置间隔调度: 每{self.interval}分钟执行一次{Style.RESET_ALL}")
         print(f"{Fore.CYAN}下一次执行时间: {self.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}程序将在后台运行，按Ctrl+C停止{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}程序将实时显示状态，按Ctrl+C停止{Style.RESET_ALL}")
         
         # 设置信号处理
         signal.signal(signal.SIGINT, self.handle_signal)
@@ -630,19 +645,25 @@ class TrafficConsumer:
         # 更新状态
         self.status = "等待执行"
         
-        # 保持主线程运行
+        # 保持主线程运行，同时实时显示状态
         try:
             while True:
+                # 计算剩余时间
+                remaining = self.next_run_time - datetime.now()
+                if remaining.total_seconds() <= 0:
+                    # 如果到达执行时间，等待调度器触发任务
+                    time.sleep(1)
+                    continue
+                
+                # 格式化剩余时间
+                remaining_str = str(remaining).split('.')[0]  # 移除毫秒
+                
+                # 显示状态和倒计时
+                status_msg = f"{Fore.CYAN}状态: {self.status} | 距离下次执行还有: {remaining_str}{Style.RESET_ALL}"
+                sys.stdout.write(f"\r{status_msg}")
+                sys.stdout.flush()
+                
                 time.sleep(1)
-                # 每分钟更新一次状态显示
-                if datetime.now().second == 0:
-                    remaining = self.next_run_time - datetime.now()
-                    remaining_str = str(remaining).split('.')[0]  # 移除毫秒
-                    print(f"\r{Fore.CYAN}状态: {self.status} | 距离下次执行还有: {remaining_str}{Style.RESET_ALL}", end='')
-                    
-                    # 检查是否需要更新下一次执行时间
-                    if datetime.now() >= self.next_run_time:
-                        self.next_run_time = datetime.now() + timedelta(minutes=self.interval)
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}接收到中断信号，正在停止调度器...{Style.RESET_ALL}")
             self.scheduler.shutdown()
