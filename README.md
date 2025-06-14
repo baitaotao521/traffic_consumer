@@ -12,6 +12,7 @@
 - 支持设置持续时间或下载次数
 - 支持Windows和Linux平台
 - 命令行界面，易于使用
+- 交互式命令行GUI配置界面
 
 ## 安装
 
@@ -37,7 +38,23 @@ pip install -r requirements.txt
 
 ## 使用方法
 
-### 基本用法
+### 命令行GUI界面
+
+最简单的使用方式是通过交互式命令行GUI界面：
+
+```bash
+python traffic_consumer_gui.py
+```
+
+这将启动一个交互式界面，您可以：
+- 配置所有参数
+- 保存和加载配置
+- 开始和停止流量消耗
+- 查看流量消耗状态和历史统计
+
+### 命令行参数方式
+
+如果您喜欢直接使用命令行参数，可以使用以下方式：
 
 ```bash
 python traffic_consumer.py
@@ -52,7 +69,9 @@ python traffic_consumer.py
 ### 命令行参数
 
 ```
-usage: traffic_consumer.py [-h] [-u URL] [-t THREADS] [-l LIMIT] [-d DURATION] [-c COUNT] [-s SCHEDULE]
+usage: traffic_consumer.py [-h] [-u URL] [-t THREADS] [-l LIMIT] [-d DURATION] [-c COUNT] [-s SCHEDULE] [--cron CRON]
+                           [--config CONFIG] [--save-config] [--load-config] [--list-configs] [--delete-config]
+                           [--show-stats] [--stats-limit STATS_LIMIT]
 
 流量消耗器 - 用于测试网络带宽和流量消耗
 
@@ -69,6 +88,19 @@ optional arguments:
                         下载次数 (默认: 无限制)
   -s SCHEDULE, --schedule SCHEDULE
                         定时执行时间，格式: YYYY-MM-DD HH:MM:SS
+  --cron CRON           Cron表达式，格式: '分 时 日 月 周'，例如: '0 * * * *' 表示每小时执行一次
+
+配置管理:
+  --config CONFIG       配置名称 (默认: default)
+  --save-config         保存当前配置
+  --load-config         加载指定配置
+  --list-configs        列出所有保存的配置
+  --delete-config       删除指定配置
+
+统计数据:
+  --show-stats          显示历史统计数据
+  --stats-limit STATS_LIMIT
+                        显示的历史统计数据条数 (默认: 5)
 ```
 
 ### 示例
@@ -103,10 +135,34 @@ python traffic_consumer.py -c 100
 python traffic_consumer.py -s "2023-12-31 23:59:59"
 ```
 
-6. 组合使用多个参数:
+6. 使用Cron表达式定时执行（每小时执行一次）:
 
 ```bash
-python traffic_consumer.py -t 12 -l 1000 -d 3600 -s "2023-12-01 08:00:00"
+python traffic_consumer.py --cron "0 * * * *"
+```
+
+7. 保存当前配置:
+
+```bash
+python traffic_consumer.py -t 16 -l 1000 --config "高速下载" --save-config
+```
+
+8. 加载已保存的配置:
+
+```bash
+python traffic_consumer.py --config "高速下载" --load-config
+```
+
+9. 查看保存的配置列表:
+
+```bash
+python traffic_consumer.py --list-configs
+```
+
+10. 查看历史统计数据:
+
+```bash
+python traffic_consumer.py --show-stats
 ```
 
 ## 注意事项
@@ -117,4 +173,4 @@ python traffic_consumer.py -t 12 -l 1000 -d 3600 -s "2023-12-01 08:00:00"
 
 ## 许可证
 
-MIT 
+MIT
