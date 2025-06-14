@@ -1,6 +1,44 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""
+流量消耗器 - 用于测试网络带宽和流量消耗
+
+使用示例:
+1. 基本使用 - 消耗无限流量:
+   python traffic_consumer.py
+
+2. 限制下载次数:
+   python traffic_consumer.py -c 100  # 下载100次后停止
+
+3. 限制流量:
+   python traffic_consumer.py --traffic-limit 100  # 消耗100MB流量后停止
+
+4. 限制速度:
+   python traffic_consumer.py -l 1  # 限制速度为1MB/s
+
+5. 定时执行 - 使用cron表达式:
+   python traffic_consumer.py --cron "*/30 * * * *"  # 每30分钟执行一次
+
+6. 定时执行 - 使用间隔时间:
+   python traffic_consumer.py --interval 60  # 每60分钟执行一次
+
+7. 组合使用:
+   python traffic_consumer.py --traffic-limit 50 --interval 30  # 每30分钟消耗50MB流量
+
+8. 保存配置:
+   python traffic_consumer.py --traffic-limit 100 -l 2 --config "daily_task" --save-config
+
+9. 加载配置:
+   python traffic_consumer.py --config "daily_task" --load-config
+
+10. 查看所有配置:
+    python traffic_consumer.py --list-configs
+
+11. 查看历史统计:
+    python traffic_consumer.py --show-stats
+"""
+
 import requests
 import threading
 import time
@@ -29,6 +67,7 @@ STATS_FILE = os.path.join(CONFIG_DIR, "stats.json")
 class TrafficConsumer:
     def __init__(self, url=DEFAULT_URL, threads=1, limit_speed=0,
                  duration=None, count=None, cron_expr=None,
+                 traffic_limit=None, interval=None,
                  config_name="default"):
         self.url = url
         self.threads = threads
@@ -36,6 +75,8 @@ class TrafficConsumer:
         self.duration = duration  # 持续时间，单位秒
         self.count = count  # 下载次数
         self.cron_expr = cron_expr  # Cron表达式
+        self.traffic_limit = traffic_limit  # 流量限制，单位MB
+        self.interval = interval  # 间隔时间，单位分钟
         self.config_name = config_name  # 配置名称
         
         # 统计数据
@@ -81,6 +122,14 @@ class TrafficConsumer:
                                 with self.lock:
                                     self.total_bytes += len(chunk)
                                     self.download_count += 1
+                                    
+                                    # 检查是否达到流量限制
+                                    if self.traffic_limit is not None:
+                                        if self.total_bytes >= self.traffic_limit * 1024 * 1024:  # 转换为字节
+                                            print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB，停止下载{Style.RESET_ALL}")
+                                            self.active = False
+                                            break
+                                
                                 time.sleep(0.1)  # 限制下载速度
                 else:
                     # 不限速的情况
@@ -90,11 +139,19 @@ class TrafficConsumer:
                         with self.lock:
                             self.total_bytes += len(response.content)
                             self.download_count += 1
+                            
+                            # 检查是否达到流量限制
+                            if self.traffic_limit is not None:
+                                if self.total_bytes >= self.traffic_limit * 1024 * 1024:  # 转换为字节
+                                    print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB，停止下载{Style.RESET_ALL}")
+                                    self.active = False
+                                    break
                 
                 # 检查是否达到下载次数限制
                 if self.count is not None:
                     with self.lock:
                         if self.download_count >= self.count:
+                            print(f"\n{Fore.YELLOW}已达到下载次数限制 {self.count}，停止下载{Style.RESET_ALL}")
                             self.active = False
                             break
                             
@@ -394,6 +451,8 @@ class TrafficConsumer:
             limit_speed=self.limit_speed,
             duration=self.duration,
             count=self.count,
+            traffic_limit=self.traffic_limit,
+            interval=self.interval,
             config_name=self.config_name
         )
         consumer.start()
@@ -477,6 +536,10 @@ def parse_args():
                       help="下载次数 (默认: 无限制)")
     parser.add_argument("--cron", default=None,
                       help="Cron表达式，格式: '分 时 日 月 周'，例如: '0 * * * *' 表示每小时执行一次")
+    parser.add_argument("--traffic-limit", type=int, default=None,
+                      help="流量限制，单位MB (默认: 无限制)")
+    parser.add_argument("--interval", type=int, default=None,
+                      help="间隔执行时间，单位分钟，例如: 60 表示每60分钟执行一次 (默认: 无限制)")
     
     # 配置管理
     parser.add_argument("--config", default="default",
@@ -528,6 +591,8 @@ def main():
         duration=config["duration"] if config and "duration" in config else args.duration,
         count=config["count"] if config and "count" in config else args.count,
         cron_expr=config["cron_expr"] if config and "cron_expr" in config else args.cron,
+        traffic_limit=config["traffic_limit"] if config and "traffic_limit" in config else args.traffic_limit,
+        interval=config["interval"] if config and "interval" in config else args.interval,
         config_name=args.config
     )
     

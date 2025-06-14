@@ -69,7 +69,8 @@ python traffic_consumer.py
 ### 命令行参数
 
 ```
-usage: traffic_consumer.py [-h] [-u URL] [-t THREADS] [-l LIMIT] [-d DURATION] [-c COUNT] [-s SCHEDULE] [--cron CRON]
+usage: traffic_consumer.py [-h] [-u URL] [-t THREADS] [-l LIMIT] [-d DURATION] [-c COUNT] [--cron CRON]
+                           [--traffic-limit TRAFFIC_LIMIT] [--interval INTERVAL]
                            [--config CONFIG] [--save-config] [--load-config] [--list-configs] [--delete-config]
                            [--show-stats] [--stats-limit STATS_LIMIT]
 
@@ -81,14 +82,15 @@ optional arguments:
   -t THREADS, --threads THREADS
                         下载线程数 (默认: 8)
   -l LIMIT, --limit LIMIT
-                        下载速度限制，单位KB/s，0表示不限速 (默认: 0)
+                        下载速度限制，单位MB/s，0表示不限速 (默认: 0)
   -d DURATION, --duration DURATION
                         持续时间，单位秒 (默认: 无限制)
   -c COUNT, --count COUNT
                         下载次数 (默认: 无限制)
-  -s SCHEDULE, --schedule SCHEDULE
-                        定时执行时间，格式: YYYY-MM-DD HH:MM:SS
   --cron CRON           Cron表达式，格式: '分 时 日 月 周'，例如: '0 * * * *' 表示每小时执行一次
+  --traffic-limit TRAFFIC_LIMIT
+                        流量限制，单位MB，达到后停止 (默认: 无限制)
+  --interval INTERVAL   间隔执行时间，单位分钟，例如: 60 表示每60分钟执行一次 (默认: 无限制)
 
 配置管理:
   --config CONFIG       配置名称 (默认: default)
@@ -105,16 +107,16 @@ optional arguments:
 
 ### 示例
 
-1. 使用16个线程下载:
+1. 使用16个线程下载（无限流量消耗，直到手动停止）:
 
 ```bash
 python traffic_consumer.py -t 16
 ```
 
-2. 限制下载速度为500KB/s:
+2. 限制下载速度为1MB/s（无限流量消耗，直到手动停止）:
 
 ```bash
-python traffic_consumer.py -l 500
+python traffic_consumer.py -l 1
 ```
 
 3. 运行10分钟后停止:
@@ -129,40 +131,88 @@ python traffic_consumer.py -d 600
 python traffic_consumer.py -c 100
 ```
 
-5. 定时在指定时间开始执行:
-
-```bash
-python traffic_consumer.py -s "2023-12-31 23:59:59"
-```
-
-6. 使用Cron表达式定时执行（每小时执行一次）:
+5. 使用Cron表达式定时执行（每小时执行一次，每次无限流量消耗）:
 
 ```bash
 python traffic_consumer.py --cron "0 * * * *"
 ```
 
-7. 保存当前配置:
+6. 保存当前配置:
 
 ```bash
 python traffic_consumer.py -t 16 -l 1000 --config "高速下载" --save-config
 ```
 
-8. 加载已保存的配置:
+7. 加载已保存的配置:
 
 ```bash
 python traffic_consumer.py --config "高速下载" --load-config
 ```
 
-9. 查看保存的配置列表:
+8. 查看保存的配置列表:
 
 ```bash
 python traffic_consumer.py --list-configs
 ```
 
-10. 查看历史统计数据:
+9. 查看历史统计数据:
 
 ```bash
 python traffic_consumer.py --show-stats
+```
+
+10. 限制流量消耗为100MB（达到后自动停止）:
+
+```bash
+python traffic_consumer.py --traffic-limit 100
+```
+
+11. 限制流量消耗为1GB（达到后自动停止）:
+
+```bash
+python traffic_consumer.py --traffic-limit 1024
+```
+
+12. 高速消耗特定流量（16线程，不限速，消耗500MB后停止）:
+
+```bash
+python traffic_consumer.py -t 16 -l 0 --traffic-limit 500
+```
+
+13. 每30分钟执行一次（每次无限流量消耗）:
+
+```bash
+python traffic_consumer.py --interval 30
+```
+
+14. 每小时执行一次，每次下载100次后停止:
+
+```bash
+python traffic_consumer.py --interval 60 -c 100
+```
+
+15. 每天定时消耗特定流量（每天凌晨2点执行，每次消耗200MB后停止）:
+
+```bash
+python traffic_consumer.py --cron "0 2 * * *" --traffic-limit 200
+```
+
+16. 每30分钟消耗50MB流量（达到后自动停止，等待下次执行）:
+
+```bash
+python traffic_consumer.py --interval 30 --traffic-limit 50
+```
+
+17. 工作日每小时消耗100MB流量，限速为2MB/s:
+
+```bash
+python traffic_consumer.py --cron "0 9-18 * * 1-5" --traffic-limit 100 -l 2
+```
+
+18. 创建定时流量消耗任务并保存为配置:
+
+```bash
+python traffic_consumer.py --interval 60 --traffic-limit 200 -t 16 --config "hourly_task" --save-config
 ```
 
 ## 注意事项
