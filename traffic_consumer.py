@@ -49,7 +49,7 @@ import json
 import signal
 from tqdm import tqdm
 from colorama import Fore, Style, init
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import http.client  # 添加导入http.client模块
@@ -493,7 +493,9 @@ class TrafficConsumer:
         )
         
         # 获取下一次执行时间
-        self.next_run_time = job.next_run_time
+        cron_trigger = CronTrigger.from_crontab(self.cron_expr)
+        # 确保使用UTC时区
+        self.next_run_time = cron_trigger.get_next_fire_time(None, datetime.now(timezone.utc))
         
         # 启动调度器
         self.scheduler.start()
@@ -513,7 +515,11 @@ class TrafficConsumer:
         try:
             while True:
                 # 计算剩余时间
-                remaining = self.next_run_time - datetime.now()
+                remaining = self.next_run_time - datetime.now(self.next_run_time.tzinfo if hasattr(self.next_run_time, 'tzinfo') and self.next_run_time.tzinfo is not None else None)
+                if remaining.total_seconds() <= 0:
+                    # 如果到达执行时间，等待调度器触发任务
+                    time.sleep(1)
+                    continue
                 
                 # 格式化剩余时间
                 remaining_str = str(remaining).split('.')[0]  # 移除毫秒
@@ -558,13 +564,13 @@ class TrafficConsumer:
         # 更新下一次执行时间
         if self.interval:
             # 对于interval触发器，直接计算下一次执行时间
-            self.next_run_time = datetime.now() + timedelta(minutes=self.interval)
+            self.next_run_time = datetime.now(timezone.utc) + timedelta(minutes=self.interval)
         elif self.cron_expr:
-            # 对于cron触发器，尝试从调度器获取下一次执行时间
+            # 对于cron触发器，使用触发器计算下一次执行时间
             try:
                 # 使用cron表达式计算下一次执行时间
                 cron_trigger = CronTrigger.from_crontab(self.cron_expr)
-                self.next_run_time = cron_trigger.get_next_fire_time(None, datetime.now())
+                self.next_run_time = cron_trigger.get_next_fire_time(None, datetime.now(timezone.utc))
             except Exception as e:
                 print(f"{Fore.YELLOW}无法计算下一次执行时间: {e}{Style.RESET_ALL}")
         
@@ -658,8 +664,9 @@ class TrafficConsumer:
             minutes=self.interval
         )
         
-        # 获取下一次执行时间 - 修复错误
-        self.next_run_time = datetime.now() + timedelta(minutes=self.interval)
+        # 获取下一次执行时间 - 直接计算，不使用job.next_run_time
+        # 使用UTC时区保持一致
+        self.next_run_time = datetime.now(timezone.utc) + timedelta(minutes=self.interval)
         
         # 启动调度器
         self.scheduler.start()
@@ -679,7 +686,7 @@ class TrafficConsumer:
         try:
             while True:
                 # 计算剩余时间
-                remaining = self.next_run_time - datetime.now()
+                remaining = self.next_run_time - datetime.now(self.next_run_time.tzinfo if hasattr(self.next_run_time, 'tzinfo') and self.next_run_time.tzinfo is not None else None)
                 if remaining.total_seconds() <= 0:
                     # 如果到达执行时间，等待调度器触发任务
                     time.sleep(1)
