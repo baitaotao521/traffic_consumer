@@ -53,6 +53,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import http.client  # 添加导入http.client模块
+from requests.exceptions import ChunkedEncodingError
 
 # 初始化colorama
 init(autoreset=True)
@@ -188,6 +189,35 @@ class TrafficConsumer:
                     self.total_bytes += partial_size
                     self.download_count += 1
                     print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据{Style.RESET_ALL}")
+                time.sleep(1)  # 出错后暂停一下
+            except ChunkedEncodingError as e:
+                # 处理requests的ChunkedEncodingError异常
+                try:
+                    # 尝试从异常原因(通常是IncompleteRead)中提取部分数据
+                    if hasattr(e, '__context__') and isinstance(e.__context__, http.client.IncompleteRead):
+                        partial_size = len(e.__context__.partial)
+                        with self.lock:
+                            self.total_bytes += partial_size
+                            self.download_count += 1
+                            print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据{Style.RESET_ALL}")
+                    else:
+                        # 尝试从异常消息中提取部分数据大小
+                        error_str = str(e)
+                        if "IncompleteRead" in error_str and "bytes read" in error_str:
+                            partial_bytes_str = error_str.split("(")[1].split(" bytes read")[0]
+                            partial_size = int(partial_bytes_str)
+                            with self.lock:
+                                self.total_bytes += partial_size
+                                self.download_count += 1
+                                print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据{Style.RESET_ALL}")
+                        else:
+                            with self.lock:
+                                self.download_count += 1
+                                print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 无法提取部分数据大小{Style.RESET_ALL}")
+                except:
+                    with self.lock:
+                        self.download_count += 1
+                        print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 无法提取部分数据大小{Style.RESET_ALL}")
                 time.sleep(1)  # 出错后暂停一下
             except Exception as e:
                 print(f"{Fore.RED}线程 {thread_id} 下载出错: {e}{Style.RESET_ALL}")

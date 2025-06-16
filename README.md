@@ -1,8 +1,6 @@
 # 流量消耗器 (Traffic Consumer)
 
-一个简单高效的流量消耗工具，用于测试网络带宽和流量消耗。本文档主要介绍Linux预编译可执行文件的使用方法。
-
-> 注意：该工具支持Windows和Linux双平台，但当前仅提供Linux预编译版本。Windows版本需要用户自行从源代码构建。
+一个简单高效的流量消耗工具，用于测试网络带宽和流量消耗。
 
 ## 功能特点
 
@@ -12,13 +10,64 @@
 - 实时显示流量消耗情况
 - 支持定时执行
 - 支持设置持续时间或下载次数
-- 支持Windows和Linux平台（当前提供Linux预编译版本）
+- 支持Windows和Linux平台
 - 命令行界面，易于使用
 - 交互式命令行GUI配置界面
+- 支持Docker部署
 
 ## 安装
 
-### Linux 预编译版本
+### Docker 部署（推荐）
+
+使用Docker是部署和运行流量消耗器最简单的方法，无需担心环境依赖问题。
+
+#### 从Docker Hub拉取镜像
+
+```bash
+docker pull baitaotao521/traffic_consumer:latest
+```
+
+#### 运行Docker容器
+
+```bash
+docker run -d --name traffic_consumer baitaotao521/traffic_consumer
+```
+
+默认参数为 `--threads 8`。如需自定义参数，可以在运行命令后添加：
+
+```bash
+docker run -d --name traffic_consumer baitaotao521/traffic_consumer --threads 16 --limit 2
+```
+
+#### Docker使用示例
+
+以下是一些使用Docker运行流量消耗器的常用示例：
+
+| 示例 | 命令 | 说明 |
+|------|------|------|
+| **默认启动** | `docker run -d --name tc baitaotao521/traffic_consumer` | 使用默认设置启动，无限流量消耗 |
+| **多线程下载** | `docker run -d --name tc baitaotao521/traffic_consumer --threads 16` | 使用16个线程下载 |
+| **限制下载速度** | `docker run -d --name tc baitaotao521/traffic_consumer --limit 1` | 限制下载速度为1MB/s |
+| **流量限制** | `docker run -d --name tc baitaotao521/traffic_consumer --traffic-limit 100` | 消耗100MB流量后自动停止 |
+| **限时运行** | `docker run -d --name tc baitaotao521/traffic_consumer --duration 600` | 运行10分钟后自动停止 |
+| **查看容器日志** | `docker logs -f tc` | 查看实时流量消耗情况 |
+| **停止容器** | `docker stop tc` | 停止流量消耗 |
+| **重启容器** | `docker restart tc` | 重新开始流量消耗 |
+| **删除容器** | `docker rm tc` | 删除流量消耗容器 |
+
+#### Docker环境变量配置
+
+您也可以通过环境变量来配置流量消耗器：
+
+```bash
+docker run -d --name tc \
+  -e THREADS=16 \
+  -e LIMIT=2 \
+  -e TRAFFIC_LIMIT=500 \
+  baitaotao521/traffic_consumer
+```
+
+## Linux 预编译版本
 
 1. 下载预编译的可执行文件
 
@@ -38,11 +87,87 @@ chmod +x traffic_consumer
 sudo mv traffic_consumer /usr/local/bin/
 ```
 
-### Windows 版本
+## Windows 版本
 
-Windows版本需要从源代码手动构建。请参考源代码仓库中的构建说明。
+Windows版本需要从源代码手动构建。(或者使用Docker镜像)
 
-## 使用方法
+## Docker版本使用方法
+
+使用Docker版本的流量消耗器非常简单，您可以直接从Docker Hub拉取镜像并运行，无需担心环境依赖问题。
+
+### 基本使用
+
+```bash
+# 拉取最新版本
+docker pull baitaotao521/traffic_consumer:latest
+
+# 使用默认参数运行
+docker run -d --name traffic_consumer baitaotao521/traffic_consumer
+```
+
+### 查看运行状态
+
+```bash
+# 查看容器日志（实时流量消耗情况）
+docker logs -f traffic_consumer
+
+# 查看容器状态
+docker ps -a | grep traffic_consumer
+```
+
+### 停止和删除容器
+
+```bash
+# 停止容器
+docker stop traffic_consumer
+
+# 删除容器
+docker rm traffic_consumer
+```
+
+### 使用自定义参数
+
+您可以在运行容器时添加自定义参数，例如：
+
+```bash
+# 使用16线程下载，限速2MB/s，消耗100MB流量后停止
+docker run -d --name traffic_consumer baitaotao521/traffic_consumer --threads 16 --limit 2 --traffic-limit 100
+```
+
+### 使用环境变量
+
+您也可以使用环境变量来配置流量消耗器：
+
+```bash
+docker run -d --name traffic_consumer \
+  -e THREADS=16 \
+  -e LIMIT=2 \
+  -e TRAFFIC_LIMIT=100 \
+  baitaotao521/traffic_consumer
+```
+
+### 定时任务
+
+您可以使用Docker的定时任务功能，定期运行流量消耗器：
+
+```bash
+# 每天凌晨2点运行，消耗500MB流量后停止
+docker run -d --name traffic_consumer \
+  --restart unless-stopped \
+  baitaotao521/traffic_consumer --cron "0 2 * * *" --traffic-limit 500
+```
+
+### 持久化配置
+
+如果您需要持久化配置和统计数据，可以挂载卷：
+
+```bash
+docker run -d --name traffic_consumer \
+  -v traffic_consumer_data:/root/.traffic_consumer \
+  baitaotao521/traffic_consumer
+```
+
+## 具体说明(以linux预编译版本为例,参数docker版通用)
 
 ### 基本使用
 
