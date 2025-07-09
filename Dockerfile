@@ -1,20 +1,21 @@
-FROM python:3.12-alpine
+# 使用轻量的Python 3.12 slim镜像
+FROM python:3.12-slim
 
+# 设置工作目录
 WORKDIR /app
 
-# 安装依赖
+# 复制依赖文件
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    rm -rf /root/.cache/pip
 
-# 复制程序文件
-COPY traffic_consumer.py .
+# 安装依赖
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 创建配置目录
-RUN mkdir -p /root/.traffic_consumer
+# 复制所有项目文件到工作目录
+COPY . .
 
-# 设置容器启动命令
-ENTRYPOINT ["python", "traffic_consumer.py"]
+# 暴露Web UI端口
+EXPOSE 5001
 
-# 默认参数，可在运行时覆盖
-CMD ["--threads", "8"] 
+# 默认启动命令
+# 运行 traffic_consumer.py，它会默认启动Web UI
+CMD ["python", "traffic_consumer.py"]

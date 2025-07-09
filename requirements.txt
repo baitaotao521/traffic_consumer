@@ -3,4 +3,7 @@ tqdm==4.66.1
 colorama==0.4.6
 argparse==1.4.0
 python-crontab==2.7.1
-apscheduler==3.10.1 
+apscheduler==3.10.1
+Flask==2.2.2
+Flask-SocketIO==5.3.3
+Werkzeug==2.2.2

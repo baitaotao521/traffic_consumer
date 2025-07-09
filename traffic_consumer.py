@@ -69,7 +69,7 @@ init(autoreset=True)
 # 默认URL列表
 DEFAULT_URLS = [
     "https://img.mcloud.139.com/material_prod/material_media/20221128/1669626861087.png",
-    "https://yun.mcloud.139.com/mCloudPc/v832/mCloud_Setup-001.exe",
+    # "https://yun.mcloud.139.com/mCloudPc/v832/mCloud_Setup-001.exe",
     "https://wxhls.mcloud.139.com/hls/M068756c0040acdfc2749d3e70b04f183d/single/video/0/1080/ts/000000.ts"
 ]
 
@@ -82,17 +82,18 @@ class TrafficConsumer:
     def __init__(self, urls=None, threads=1, limit_speed=0,
                  duration=None, count=None, cron_expr=None,
                  traffic_limit=None, interval=None,
-                 config_name="default", url_strategy="random"):
+                 config_name="default", url_strategy="random", logger=None):
         self.urls = urls if urls else DEFAULT_URLS
-        self.threads = threads
-        self.limit_speed = limit_speed  # 限速，单位MB/s，0表示不限速
+        self.threads = threads if threads is not None else 1
+        self.limit_speed = limit_speed if limit_speed is not None else 0  # 限速，单位MB/s，0表示不限速
         self.duration = duration  # 持续时间，单位秒
         self.count = count  # 下载次数
         self.cron_expr = cron_expr  # Cron表达式
         self.traffic_limit = traffic_limit  # 流量限制，单位MB
         self.interval = interval  # 间隔时间，单位分钟
-        self.config_name = config_name  # 配置名称
-        self.url_strategy = url_strategy  # URL选择策略: "random" 或 "round_robin"
+        self.config_name = config_name if config_name else "default"
+        self.url_strategy = url_strategy if url_strategy else "random"  # URL选择策略: "random" 或 "round_robin"
+        self.logger = logger if logger else self._default_logger
         
         # 统计数据
         self.lock = threading.Lock()
@@ -130,6 +131,12 @@ class TrafficConsumer:
 
         # 线程URL分配记录（避免重复打印）
         self.thread_url_assignments = {}
+
+    def _default_logger(self, message, color=None):
+        if color:
+            print(f"{color}{message}{Style.RESET_ALL}")
+        else:
+            print(message)
         
     def get_url_for_thread(self, thread_id):
         """为线程获取URL"""
@@ -232,14 +239,14 @@ class TrafficConsumer:
                                     # 检查是否达到流量限制
                                     if self.traffic_limit is not None:
                                         if self.total_bytes >= self.traffic_limit * 1024 * 1024:  # 转换为字节
-                                            print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB{Style.RESET_ALL}")
+                                            self.logger(f"\n已达到流量限制 {self.traffic_limit} MB", Fore.YELLOW)
                                             if self.interval or self.cron_expr:
                                                 self.status = "等待下次执行"
-                                                print(f"{Fore.CYAN}等待下次执行...{Style.RESET_ALL}")
+                                                self.logger("等待下次执行...", Fore.CYAN)
                                                 self.active = False
                                                 break
                                             else:
-                                                print(f"{Fore.YELLOW}停止下载{Style.RESET_ALL}")
+                                                self.logger("停止下载", Fore.YELLOW)
                                                 self.active = False
                                                 break
                                 
@@ -256,14 +263,14 @@ class TrafficConsumer:
                             # 检查是否达到流量限制
                             if self.traffic_limit is not None:
                                 if self.total_bytes >= self.traffic_limit * 1024 * 1024:  # 转换为字节
-                                    print(f"\n{Fore.YELLOW}已达到流量限制 {self.traffic_limit} MB{Style.RESET_ALL}")
+                                    self.logger(f"\n已达到流量限制 {self.traffic_limit} MB", Fore.YELLOW)
                                     if self.interval or self.cron_expr:
                                         self.status = "等待下次执行"
-                                        print(f"{Fore.CYAN}等待下次执行...{Style.RESET_ALL}")
+                                        self.logger("等待下次执行...", Fore.CYAN)
                                         self.active = False
                                         break
                                     else:
-                                        print(f"{Fore.YELLOW}停止下载{Style.RESET_ALL}")
+                                        self.logger("停止下载", Fore.YELLOW)
                                         self.active = False
                                         break
                 
@@ -271,14 +278,14 @@ class TrafficConsumer:
                 if self.count is not None:
                     with self.lock:
                         if self.download_count >= self.count:
-                            print(f"\n{Fore.YELLOW}已达到下载次数限制 {self.count}{Style.RESET_ALL}")
+                            self.logger(f"\n已达到下载次数限制 {self.count}", Fore.YELLOW)
                             if self.interval or self.cron_expr:
                                 self.status = "等待下次执行"
-                                print(f"{Fore.CYAN}等待下次执行...{Style.RESET_ALL}")
+                                self.logger("等待下次执行...", Fore.CYAN)
                                 self.active = False
                                 break
                             else:
-                                print(f"{Fore.YELLOW}停止下载{Style.RESET_ALL}")
+                                self.logger("停止下载", Fore.YELLOW)
                                 self.active = False
                                 break
                             
@@ -288,7 +295,7 @@ class TrafficConsumer:
                     partial_size = len(e.partial)
                     self.total_bytes += partial_size
                     self.download_count += 1
-                    print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据{Style.RESET_ALL}")
+                    self.logger(f"线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据", Fore.YELLOW)
                 time.sleep(1)  # 出错后暂停一下
             except ChunkedEncodingError as e:
                 # 处理requests的ChunkedEncodingError异常
@@ -299,7 +306,7 @@ class TrafficConsumer:
                         with self.lock:
                             self.total_bytes += partial_size
                             self.download_count += 1
-                            print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据{Style.RESET_ALL}")
+                            self.logger(f"线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据", Fore.YELLOW)
                     else:
                         # 尝试从异常消息中提取部分数据大小
                         error_str = str(e)
@@ -309,18 +316,18 @@ class TrafficConsumer:
                             with self.lock:
                                 self.total_bytes += partial_size
                                 self.download_count += 1
-                                print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据{Style.RESET_ALL}")
+                                self.logger(f"线程 {thread_id} 连接中断: 已记录 {self.format_bytes(partial_size)} 部分数据", Fore.YELLOW)
                         else:
                             with self.lock:
                                 self.download_count += 1
-                                print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 无法提取部分数据大小{Style.RESET_ALL}")
+                                self.logger(f"线程 {thread_id} 连接中断: 无法提取部分数据大小", Fore.YELLOW)
                 except:
                     with self.lock:
                         self.download_count += 1
-                        print(f"{Fore.YELLOW}线程 {thread_id} 连接中断: 无法提取部分数据大小{Style.RESET_ALL}")
+                        self.logger(f"线程 {thread_id} 连接中断: 无法提取部分数据大小", Fore.YELLOW)
                 time.sleep(1)  # 出错后暂停一下
             except Exception as e:
-                print(f"{Fore.RED}线程 {thread_id} 下载出错: {e}{Style.RESET_ALL}")
+                self.logger(f"线程 {thread_id} 下载出错: {e}", Fore.RED)
                 time.sleep(1)  # 出错后暂停一下
     
     def display_stats(self):
@@ -372,25 +379,25 @@ class TrafficConsumer:
         
         avg_speed_str = self.format_bytes(avg_speed) + "/s"
             
-        print(f"\n\n{Fore.CYAN}=== 流量消耗统计 ==={Style.RESET_ALL}")
-        print(f"{Fore.CYAN}总消耗流量: {self.format_bytes(self.total_bytes)}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}平均速度: {avg_speed_str}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}总运行时间: {timedelta(seconds=int(elapsed_time))}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}总下载次数: {self.download_count}{Style.RESET_ALL}")
+        self.logger("\n\n=== 流量消耗统计 ===", Fore.CYAN)
+        self.logger(f"总消耗流量: {self.format_bytes(self.total_bytes)}", Fore.CYAN)
+        self.logger(f"平均速度: {avg_speed_str}", Fore.CYAN)
+        self.logger(f"总运行时间: {timedelta(seconds=int(elapsed_time))}", Fore.CYAN)
+        self.logger(f"总下载次数: {self.download_count}", Fore.CYAN)
 
         # 显示URL使用统计
-        print(f"\n{Fore.CYAN}=== URL使用统计 ==={Style.RESET_ALL}")
-        print(f"{Fore.CYAN}URL选择策略: {self.url_strategy}{Style.RESET_ALL}")
+        self.logger("\n=== URL使用统计 ===", Fore.CYAN)
+        self.logger(f"URL选择策略: {self.url_strategy}", Fore.CYAN)
         for url, count in self.url_usage.items():
             percentage = (count / self.download_count * 100) if self.download_count > 0 else 0
-            print(f"{Fore.CYAN}  {url}: {count}次 ({percentage:.1f}%){Style.RESET_ALL}")
+            self.logger(f"  {url}: {count}次 ({percentage:.1f}%)", Fore.CYAN)
 
-        print(f"\n{Fore.CYAN}统计数据已保存到: {STATS_FILE}{Style.RESET_ALL}")
+        self.logger(f"\n统计数据已保存到: {STATS_FILE}", Fore.CYAN)
         
         # 如果有下一次执行时间，显示它
         if self.next_run_time:
             next_run = self.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"{Fore.CYAN}下一次执行时间: {next_run}{Style.RESET_ALL}")
+            self.logger(f"下一次执行时间: {next_run}", Fore.CYAN)
 
     def clear_and_display_interface(self):
         """清屏并显示固定界面"""
@@ -422,26 +429,26 @@ class TrafficConsumer:
     def update_display_interface(self, total_str, speed_str, traffic_limit_str, elapsed_time):
         """更新固定显示界面"""
         # 移动光标到线程状态显示区域
-        print(f"\n{Fore.BLUE}线程状态:{Style.RESET_ALL}")
+        self.logger(f"\n线程状态:", Fore.BLUE)
 
         # 显示每个线程当前使用的URL
         with self.lock:
             for thread_id in range(1, self.threads + 1):
                 current_url = self.thread_current_urls.get(thread_id, "等待中...")
-                print(f"{Fore.BLUE}线程 {thread_id} 当前使用URL: {current_url}{Style.RESET_ALL}")
+                self.logger(f"线程 {thread_id} 当前使用URL: {current_url}", Fore.BLUE)
 
         # 显示分隔线
-        print(f"\n{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
+        self.logger(f"\n{'=' * 50}", Fore.CYAN)
 
         # 显示统计信息
-        print(f"{Fore.GREEN}已消耗: {total_str} | 速度: {speed_str}{traffic_limit_str} | "
+        self.logger(f"已消耗: {total_str} | 速度: {speed_str}{traffic_limit_str} | "
               f"运行时间: {timedelta(seconds=int(elapsed_time))} | "
-              f"下载次数: {self.download_count}{Style.RESET_ALL}")
+              f"下载次数: {self.download_count}", Fore.GREEN)
 
         # 移动光标回到开始位置准备下次更新
         # 计算需要向上移动的行数（线程数 + 4行固定内容）
         lines_to_move_up = self.threads + 4
-        print(f"\033[{lines_to_move_up}A", end="")  # 向上移动光标
+        # print(f"\033[{lines_to_move_up}A", end="")  # 向上移动光标
 
     def format_bytes(self, bytes_value):
         """格式化字节数为可读字符串"""
@@ -526,22 +533,25 @@ class TrafficConsumer:
     def load_config(config_name):
         """从文件加载配置"""
         if not os.path.exists(CONFIG_FILE):
-            print(f"{Fore.YELLOW}配置文件不存在，将使用默认配置{Style.RESET_ALL}")
+            # print(f"{Fore.YELLOW}配置文件不存在，将使用默认配置{Style.RESET_ALL}")
             return None
         
         try:
             with open(CONFIG_FILE, 'r') as f:
                 config_data = json.load(f)
+
+            if config_name == '_all_':
+                return config_data
             
             if config_name in config_data:
                 config = config_data[config_name]
-                print(f"{Fore.CYAN}已加载配置 '{config_name}'{Style.RESET_ALL}")
+                # print(f"{Fore.CYAN}已加载配置 '{config_name}'{Style.RESET_ALL}")
                 return config
             else:
-                print(f"{Fore.YELLOW}配置 '{config_name}' 不存在，将使用默认配置{Style.RESET_ALL}")
+                # print(f"{Fore.YELLOW}配置 '{config_name}' 不存在，将使用默认配置{Style.RESET_ALL}")
                 return None
         except Exception as e:
-            print(f"{Fore.RED}加载配置出错: {e}{Style.RESET_ALL}")
+            # print(f"{Fore.RED}加载配置出错: {e}{Style.RESET_ALL}")
             return None
     
     @staticmethod
@@ -896,64 +906,81 @@ def parse_args():
                       help="显示历史统计数据")
     parser.add_argument("--stats-limit", type=int, default=5,
                       help="显示的历史统计数据条数 (默认: 5)")
+
+    # UI
+    parser.add_argument("--no-gui", action="store_true",
+                      help="不启动Web UI，仅使用命令行")
     
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    
-    # 处理配置管理命令
-    if args.list_configs:
-        TrafficConsumer.list_configs()
-        return
-    
-    if args.delete_config:
-        TrafficConsumer.delete_config(args.config)
-        return
-    
-    if args.show_stats:
-        TrafficConsumer.show_stats(args.stats_limit)
-        return
-    
-    # 加载配置
-    config = None
-    if args.load_config:
-        config = TrafficConsumer.load_config(args.config)
-    
-    # 处理URLs参数
-    urls = None
-    if config:
-        # 兼容旧配置格式
-        if "urls" in config:
-            urls = config["urls"]
-        elif "url" in config:
-            urls = [config["url"]]  # 将单个URL转换为列表
 
-    if not urls:
-        urls = args.urls if args.urls else DEFAULT_URLS
+    # 如果是命令行模式或指定了no-gui
+    is_cli_mode = any(arg in sys.argv for arg in ['--list-configs', '--delete-config', '--show-stats', '--save-config', '--no-gui'])
 
-    # 创建流量消耗器实例
-    consumer = TrafficConsumer(
-        urls=urls,
-        url_strategy=config.get("url_strategy", args.url_strategy) if config else args.url_strategy,
-        threads=config["threads"] if config and "threads" in config else args.threads,
-        limit_speed=config["limit_speed"] if config and "limit_speed" in config else args.limit,
-        duration=config["duration"] if config and "duration" in config else args.duration,
-        count=config["count"] if config and "count" in config else args.count,
-        cron_expr=config["cron_expr"] if config and "cron_expr" in config else args.cron,
-        traffic_limit=config["traffic_limit"] if config and "traffic_limit" in config else args.traffic_limit,
-        interval=config["interval"] if config and "interval" in config else args.interval,
-        config_name=args.config
-    )
-    
-    # 如果只是保存配置
-    if args.save_config:
-        consumer.save_config()
-        return
-    
-    # 启动流量消耗器
-    consumer.start()
+    if is_cli_mode:
+        # 处理配置管理命令
+        if args.list_configs:
+            TrafficConsumer.list_configs()
+            return
+        
+        if args.delete_config:
+            TrafficConsumer.delete_config(args.config)
+            return
+        
+        if args.show_stats:
+            TrafficConsumer.show_stats(args.stats_limit)
+            return
+        
+        # 加载配置
+        config = None
+        if args.load_config:
+            config = TrafficConsumer.load_config(args.config)
+        
+        # 处理URLs参数
+        urls = None
+        if config:
+            # 兼容旧配置格式
+            if "urls" in config:
+                urls = config["urls"]
+            elif "url" in config:
+                urls = [config["url"]]  # 将单个URL转换为列表
+
+        if not urls:
+            urls = args.urls if args.urls else DEFAULT_URLS
+
+        # 创建流量消耗器实例
+        consumer = TrafficConsumer(
+            urls=urls,
+            url_strategy=config.get("url_strategy", args.url_strategy) if config else args.url_strategy,
+            threads=config["threads"] if config and "threads" in config else args.threads,
+            limit_speed=config["limit_speed"] if config and "limit_speed" in config else args.limit,
+            duration=config["duration"] if config and "duration" in config else args.duration,
+            count=config["count"] if config and "count" in config else args.count,
+            cron_expr=config["cron_expr"] if config and "cron_expr" in config else args.cron,
+            traffic_limit=config["traffic_limit"] if config and "traffic_limit" in config else args.traffic_limit,
+            interval=config["interval"] if config and "interval" in config else args.interval,
+            config_name=args.config
+        )
+        
+        # 如果只是保存配置
+        if args.save_config:
+            consumer.save_config()
+            return
+        
+        # 启动流量消耗器
+        consumer.start()
+    else:
+        # 启动Web UI
+        try:
+            from web_ui import app, socketio
+            print("启动 Web UI, 访问 http://127.0.0.1:5001")
+            socketio.run(app, host='0.0.0.0', port=5001, allow_unsafe_werkzeug=True)
+        except ImportError:
+            print("错误: 无法导入web_ui。请确保Flask和Flask-SocketIO已安装。")
+            print("运行 'pip install Flask Flask-SocketIO' 来安装。")
 
 
 if __name__ == "__main__":

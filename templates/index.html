@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流量消耗器</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .container {
+            margin-top: 2rem;
+        }
+        .card {
+            margin-bottom: 1.5rem;
+        }
+        #log-container {
+            height: 300px;
+            background-color: #212529;
+            color: #f8f9fa;
+            font-family: monospace;
+            overflow-y: scroll;
+            padding: 1rem;
+            border-radius: 0.25rem;
+        }
+        .nav-tabs .nav-link {
+            color: #495057;
+        }
+        .nav-tabs .nav-link.active {
+            color: #000;
+            background-color: #fff;
+            border-color: #dee2e6 #dee2e6 #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="text-center mb-4">
+            <h1><i class="bi bi-speedometer2"></i> 流量消耗器</h1>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs" id="status-tab" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="main-status-tab" data-bs-toggle="tab" data-bs-target="#main-status" type="button" role="tab" aria-controls="main-status" aria-selected="true"><i class="bi bi-bar-chart-line"></i> 总体状态</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="thread-status-tab" data-bs-toggle="tab" data-bs-target="#thread-status" type="button" role="tab" aria-controls="thread-status" aria-selected="false"><i class="bi bi-hdd-stack"></i> 线程状态</button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body tab-content" id="status-tab-content">
+                        <div class="tab-pane fade show active" id="main-status" role="tabpanel" aria-labelledby="main-status-tab">
+                            <h5 class="card-title">运行状态: <span id="running-status" class="badge bg-secondary">已停止</span></h5>
+                            <p class="card-text">总消耗: <span id="total-bytes">0 B</span></p>
+                            <p class="card-text">速度: <span id="speed">0 B/s</span></p>
+                            <p class="card-text">下载次数: <span id="download-count">0</span></p>
+                            <p class="card-text">当前配置: <span id="current-config">N/A</span></p>
+                        </div>
+                        <div class="tab-pane fade" id="thread-status" role="tabpanel" aria-labelledby="thread-status-tab">
+                            <div id="thread-status-container" style="height: 150px; overflow-y: auto;">
+                                <table class="table table-striped table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">#</th>
+                                            <th scope="col">URL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="thread-status-tbody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-toggles"></i> 控制
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group mb-3">
+                            <label class="input-group-text" for="config-select"><i class="bi bi-file-earmark-text"></i></label>
+                            <select class="form-select" id="config-select"></select>
+                        </div>
+                        <button id="start-btn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 启动</button>
+                        <button id="stop-btn" class="btn btn-danger" disabled><i class="bi bi-stop-fill"></i> 停止</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-pencil-square"></i> 配置编辑器
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="config-name" class="form-label">配置名称</label>
+                        <input type="text" class="form-control" id="config-name" placeholder="例如: default_task">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="url-strategy" class="form-label">URL选择策略</label>
+                        <select class="form-select" id="url-strategy">
+                            <option value="random">随机</option>
+                            <option value="round_robin">轮询</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="urls" class="form-label">URLs (每行一个)</label>
+                    <textarea class="form-control" id="urls" rows="3"></textarea>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="threads" class="form-label">线程数</label>
+                        <input type="number" class="form-control" id="threads" placeholder="例如: 8">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="limit-speed" class="form-label">限速 (MB/s, 0为不限速)</label>
+                        <input type="number" class="form-control" id="limit-speed" placeholder="例如: 1">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="traffic-limit" class="form-label">流量限制 (MB)</label>
+                        <input type="number" class="form-control" id="traffic-limit" placeholder="例如: 1024">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="duration" class="form-label">持续时间 (秒)</label>
+                        <input type="number" class="form-control" id="duration" placeholder="例如: 3600">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="count" class="form-label">下载次数</label>
+                        <input type="number" class="form-control" id="count" placeholder="例如: 100">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="interval" class="form-label">间隔时间 (分钟)</label>
+                        <input type="number" class="form-control" id="interval" placeholder="例如: 60">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="cron-expr" class="form-label">Cron表达式</label>
+                    <input type="text" class="form-control" id="cron-expr" placeholder="例如: */5 * * * *">
+                </div>
+                <button id="save-config-btn" class="btn btn-success"><i class="bi bi-save"></i> 保存配置</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <a class="btn btn-dark w-100" data-bs-toggle="collapse" href="#log-collapse" role="button" aria-expanded="false" aria-controls="log-collapse">
+                    <i class="bi bi-terminal"></i> 显示/隐藏日志
+                </a>
+            </div>
+            <div class="collapse" id="log-collapse">
+                <div class="card-body p-0">
+                    <div id="log-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port);
+
+            const startBtn = document.getElementById('start-btn');
+            const stopBtn = document.getElementById('stop-btn');
+            const saveConfigBtn = document.getElementById('save-config-btn');
+            const configSelect = document.getElementById('config-select');
+            const runningStatus = document.getElementById('running-status');
+            const logContainer = document.getElementById('log-container');
+            const logCollapse = document.getElementById('log-collapse');
+            const threadStatusTbody = document.getElementById('thread-status-tbody');
+
+            const configNameInput = document.getElementById('config-name');
+            const urlsInput = document.getElementById('urls');
+            const urlStrategyInput = document.getElementById('url-strategy');
+            const threadsInput = document.getElementById('threads');
+            const limitSpeedInput = document.getElementById('limit-speed');
+            const trafficLimitInput = document.getElementById('traffic-limit');
+            const durationInput = document.getElementById('duration');
+            const countInput = document.getElementById('count');
+            const cronExprInput = document.getElementById('cron-expr');
+            const intervalInput = document.getElementById('interval');
+
+            function addLog(message) {
+                const logEntry = document.createElement('div');
+                logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+
+            logCollapse.addEventListener('shown.bs.collapse', function () {
+                socket.emit('toggle_logs', { enabled: true });
+            });
+
+            logCollapse.addEventListener('hidden.bs.collapse', function () {
+                socket.emit('toggle_logs', { enabled: false });
+            });
+
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                // Do not add log here, let the toggle decide
+                socket.emit('get_configs');
+            });
+
+            socket.on('log_message', (data) => {
+                addLog(data.message);
+            });
+
+            socket.on('configs_list', (data) => {
+                configSelect.innerHTML = '';
+                data.configs.forEach(config => {
+                    const option = document.createElement('option');
+                    option.value = config;
+                    option.textContent = config;
+                    configSelect.appendChild(option);
+                });
+                if (data.configs.length > 0) {
+                    configSelect.dispatchEvent(new Event('change'));
+                }
+            });
+
+            socket.on('config_details', (data) => {
+                configNameInput.value = data.name;
+                urlsInput.value = data.config.urls ? data.config.urls.join('\n') : '';
+                urlStrategyInput.value = data.config.url_strategy || 'random';
+                threadsInput.value = data.config.threads || '';
+                limitSpeedInput.value = data.config.limit_speed !== null ? data.config.limit_speed : '';
+                trafficLimitInput.value = data.config.traffic_limit || '';
+                durationInput.value = data.config.duration || '';
+                countInput.value = data.config.count || '';
+                cronExprInput.value = data.config.cron_expr || '';
+                intervalInput.value = data.config.interval || '';
+            });
+
+            socket.on('status_update', (data) => {
+                if (data.running) {
+                    runningStatus.textContent = '运行中';
+                    runningStatus.className = 'badge bg-success';
+                } else {
+                    runningStatus.textContent = '已停止';
+                    runningStatus.className = 'badge bg-secondary';
+                }
+                document.getElementById('total-bytes').textContent = data.total_bytes || '0 B';
+                document.getElementById('speed').textContent = data.speed || '0 B/s';
+                document.getElementById('download-count').textContent = data.download_count || '0';
+                document.getElementById('current-config').textContent = data.config || 'N/A';
+
+                threadStatusTbody.innerHTML = '';
+                if (data.thread_status) {
+                    for (const [threadId, url] of Object.entries(data.thread_status)) {
+                        const row = threadStatusTbody.insertRow();
+                        const cell1 = row.insertCell(0);
+                        const cell2 = row.insertCell(1);
+                        cell1.textContent = threadId;
+                        cell2.textContent = url;
+                    }
+                }
+
+                startBtn.disabled = data.running;
+                stopBtn.disabled = !data.running;
+            });
+
+            socket.on('error', (data) => {
+                addLog(`错误: ${data.message}`);
+                alert('错误: ' + data.message);
+            });
+
+            configSelect.addEventListener('change', () => {
+                const selectedConfig = configSelect.value;
+                socket.emit('get_config_details', { name: selectedConfig });
+            });
+
+            function getNumberValue(inputElement) {
+                const value = inputElement.value;
+                if (value === '' || value === null) {
+                    return null;
+                }
+                return parseInt(value, 10);
+            }
+
+            function getConfigFromForm() {
+                return {
+                    config_name: configNameInput.value,
+                    urls: urlsInput.value.split(/\r?\n/).filter(url => url.trim() !== ''),
+                    url_strategy: urlStrategyInput.value,
+                    threads: getNumberValue(threadsInput),
+                    limit_speed: getNumberValue(limitSpeedInput),
+                    traffic_limit: getNumberValue(trafficLimitInput),
+                    duration: getNumberValue(durationInput),
+                    count: getNumberValue(countInput),
+                    cron_expr: cronExprInput.value || null,
+                    interval: getNumberValue(intervalInput)
+                };
+            }
+
+            startBtn.addEventListener('click', () => {
+                logContainer.innerHTML = '';
+                if (logCollapse.classList.contains('show')) {
+                    addLog('正在启动流量消耗器...');
+                }
+                socket.emit('start_consumer', getConfigFromForm());
+            });
+
+            stopBtn.addEventListener('click', () => {
+                if (logCollapse.classList.contains('show')) {
+                    addLog('正在停止流量消耗器...');
+                }
+                socket.emit('stop_consumer');
+            });
+
+            saveConfigBtn.addEventListener('click', () => {
+                const config = getConfigFromForm();
+                if (logCollapse.classList.contains('show')) {
+                    addLog(`正在保存配置: ${config.config_name}`);
+                }
+                socket.emit('save_config', { name: config.config_name, data: config });
+            });
+        });
+    </script>
+</body>
+</html>
