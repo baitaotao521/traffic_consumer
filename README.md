@@ -14,6 +14,7 @@
 6. [目录结构](#-目录结构)
 7. [开发与测试](#-开发与测试)
 8. [常见问题](#-常见问题)
+9. [扩展阅读](#-扩展阅读)
 
 ---
 
@@ -132,33 +133,240 @@ python traffic_consumer.py \
 
 ---
 
+## 💡 最佳实践
+
+### 生产环境建议
+
+**1. 使用配置文件管理**
+```bash
+# 保存常用配置
+python traffic_consumer.py \
+  --urls https://cdn1.example.com/test https://cdn2.example.com/test \
+  --threads 8 \
+  --limit 50 \
+  --config production \
+  --save-config
+
+# 加载配置运行
+python traffic_consumer.py --config production --load-config --no-gui
+```
+
+**2. 定时任务最佳实践**
+```bash
+# 使用 Cron 表达式实现复杂调度
+python traffic_consumer.py \
+  --cron "*/30 9-18 * * 1-5" \  # 工作日 9-18 点，每 30 分钟
+  --traffic-limit 1024 \        # 每次限制 1GB
+  --auto-remove-failed-url      # 自动移除失效链接
+```
+
+**3. 监控和告警**
+```bash
+# 结合系统监控工具
+python traffic_consumer.py --no-gui | tee -a /var/log/traffic_consumer.log
+
+# 配置日志轮转（/etc/logrotate.d/traffic_consumer）
+/var/log/traffic_consumer.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+}
+```
+
+**4. Docker 生产部署**
+```bash
+# 使用 docker-compose 管理
+version: '3'
+services:
+  traffic_consumer:
+    image: baitaotao521/traffic_consumer:latest
+    container_name: traffic_consumer
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./config:/root/.traffic_consumer
+    environment:
+      - TZ=Asia/Shanghai
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+```
+
+### 安全建议
+
+**1. 避免在公网暴露 Web UI**
+```bash
+# 仅监听本地地址
+# 修改 web_ui.py 中的 host 参数
+socketio.run(app, host="127.0.0.1", port=5001)
+
+# 或使用反向代理（Nginx）
+location /traffic-consumer {
+    proxy_pass http://127.0.0.1:5001;
+    # 添加认证
+    auth_basic "Restricted";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+}
+```
+
+**2. 配置文件权限**
+```bash
+# 限制配置文件权限
+chmod 600 ~/.traffic_consumer/config.json
+chmod 600 ~/.traffic_consumer/stats.json
+```
+
+**3. URL 白名单**
+```python
+# 建议在代码中添加 URL 验证
+ALLOWED_DOMAINS = ['example.com', 'cdn.example.com']
+
+def validate_url(url):
+    from urllib.parse import urlparse
+    domain = urlparse(url).netloc
+    return any(domain.endswith(allowed) for allowed in ALLOWED_DOMAINS)
+```
+
+### 性能优化建议
+
+**1. 合理设置线程数**
+- 带宽 < 100 Mbps：4-8 线程
+- 带宽 100-1000 Mbps：8-16 线程
+- 带宽 > 1000 Mbps：16-32 线程
+
+**2. 使用 URL 策略**
+- 多个性能相近的 URL：使用 `random` 策略（默认）
+- 需要严格均衡分配：使用 `round_robin` 策略
+
+**3. 启用失效 URL 自动移除**
+```bash
+python traffic_consumer.py --auto-remove-failed-url
+```
+
+**4. 定期清理历史数据**
+```bash
+# 清理 30 天前的统计数据
+find ~/.traffic_consumer -name "*.json" -mtime +30 -delete
+```
+
+---
+
 ## 🗂 目录结构
 
 ```
-├── traffic_consumer.py     # CLI 入口，兼容旧版本
-├── web_ui.py               # Flask + Socket.IO Web 服务
-├── app/
-│   ├── cli.py              # 命令行解析与入口
-│   ├── consumer.py         # 核心业务：下载、调度、统计
-│   ├── config_manager.py   # 配置文件 CRUD
-│   ├── stats_manager.py    # 统计展示与历史记录
-│   └── url_manager.py      # URL 分配、权重与失效治理
-├── static/                 # 前端 JS/CSS
-├── templates/              # Web 模板
-├── build_config.py         # PyInstaller 打包
-├── Dockerfile              # 镜像构建
-└── .github/workflows/      # CI/CD
+traffic_consumer/
+├── traffic_consumer.py          # CLI 入口，兼容旧版本
+├── main.py                      # 统一启动入口
+├── web_ui.py                    # Flask + Socket.IO Web 服务
+├── app/                         # 核心应用模块
+│   ├── __init__.py             
+│   ├── cli.py                   # 命令行参数解析与运行逻辑
+│   ├── consumer.py              # 核心业务：下载、调度、统计
+│   ├── config.py                # 全局配置与默认常量
+│   ├── config_manager.py        # 配置文件 CRUD 操作
+│   ├── stats_manager.py         # 统计展示与历史记录管理
+│   ├── url_manager.py           # URL 分配、权重与失效治理
+│   ├── limiter.py               # 基于令牌桶的限速器
+│   └── storage.py               # JSON 文件读写工具
+├── static/                      # 前端静态资源
+│   ├── css/                     # 样式文件
+│   └── js/                      # JavaScript 文件
+├── templates/                   # Web 模板
+│   └── index.html               # 主界面模板
+├── build_config.py              # PyInstaller 打包脚本
+├── Dockerfile                   # Docker 镜像构建文件
+├── requirements.txt             # Python 依赖列表
+├── README.md                    # 项目说明文档
+├── BUILD_GUIDE.md               # 构建指南
+├── REFACTORING_SUGGESTIONS.md   # 代码重构建议
+└── .github/workflows/           # CI/CD 工作流
+    └── build-simple.yml         # 自动构建工作流
 ```
 
 ---
 
 ## 🛠 开发与测试
 
-1. 建议启用虚拟环境并安装 `requirements.txt`。
-2. 修改核心逻辑后运行 `python -m compileall app` 确保语法正确。
-3. 推崇使用 `pytest`、`ruff`、`black` 做单元测试与静态检查。
-4. 如需发布 PyInstaller 版本，执行 `python build_config.py` 即可。
-5. GitHub Actions（`.github/workflows/build-simple.yml`）会在 push/tag 时自动构建可执行文件与多架构镜像。
+### 开发环境设置
+
+```bash
+# 克隆仓库
+git clone https://github.com/baitaotao521/traffic_consumer.git
+cd traffic_consumer
+
+# 创建虚拟环境
+python -m venv .venv
+
+# 激活虚拟环境
+source .venv/bin/activate  # Linux/Mac
+# 或
+.venv\Scripts\activate     # Windows
+
+# 安装依赖
+pip install -U pip
+pip install -r requirements.txt
+```
+
+### 代码质量检查
+
+```bash
+# 语法检查
+python -m compileall app
+
+# 代码格式化（推荐使用 black）
+pip install black
+black app/ *.py
+
+# 代码风格检查（推荐使用 ruff）
+pip install ruff
+ruff check app/ *.py
+
+# 类型检查（可选）
+pip install mypy
+mypy app/
+```
+
+### 本地构建可执行文件
+
+```bash
+# 安装 PyInstaller
+pip install pyinstaller
+
+# 使用构建脚本
+python build_config.py
+
+# 或手动构建
+pyinstaller --onefile --name traffic_consumer traffic_consumer.py
+```
+
+### 持续集成
+
+GitHub Actions 工作流（`.github/workflows/build-simple.yml`）会在以下情况自动触发：
+- 推送代码到 `main` 或 `master` 分支
+- 创建标签（格式：`v*`，如 `v1.0.0`）
+- 手动触发工作流
+
+构建产物会自动上传到 GitHub Actions Artifacts 和 Releases（标签构建）。
+
+### Docker 镜像构建
+
+```bash
+# 本地构建镜像
+docker build -t traffic_consumer:local .
+
+# 运行镜像
+docker run -d \
+  -p 5001:5001 \
+  -v $HOME/.traffic_consumer_data:/root/.traffic_consumer \
+  --name traffic_consumer_local \
+  traffic_consumer:local
+```
 
 ---
 
@@ -183,4 +391,13 @@ python traffic_consumer.py \
 3. 更新文档/截图/测试并在 PR 描述中写明动机与验证
 
 项目以 **MIT License** 发布，可自由使用与二次开发。
+
+---
+
+## 📖 扩展阅读
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - 详细的系统架构说明，包括组件设计、数据流、并发控制和性能优化
+- **[REFACTORING_SUGGESTIONS.md](REFACTORING_SUGGESTIONS.md)** - 代码优化与重构建议，包括日志系统重构、代码质量改进和性能优化方案
+- **[PERFORMANCE_TUNING.md](PERFORMANCE_TUNING.md)** - 性能调优指南，包括参数调优、系统优化、监控诊断和故障排查
+- **[BUILD_GUIDE.md](BUILD_GUIDE.md)** - 完整的构建指南，包括 PyInstaller 打包和 CI/CD 配置
 
