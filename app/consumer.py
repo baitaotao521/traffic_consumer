@@ -26,6 +26,7 @@ from app.config_manager import (
     save_config_entry,
 )
 from app.limiter import RateLimiter
+from app.logger import setup_logger
 from app.stats_manager import StatsManager, show_stats as show_stats_report
 from app.url_manager import UrlManager
 
@@ -49,10 +50,17 @@ class TrafficConsumer:
         self.interval = interval  # 间隔时间，单位分钟
         self.config_name = config_name if config_name else "default"
         self.url_strategy = url_strategy if url_strategy else "random"  # URL选择策略: "random" 或 "round_robin"
+        
+        # 初始化日志系统
         if logger:
-            self.logger = self._wrap_logger(logger)
+            # Web 模式：使用传入的自定义 logger
+            self._is_cli_mode = False
+            self._setup_web_logger(logger)
         else:
-            self.logger = self._default_logger
+            # CLI 模式：使用标准 logging 模块
+            self._is_cli_mode = True
+            self._setup_cli_logger()
+        
         self.history_callback = history_callback
         self.invalid_url_callback = invalid_url_callback
         self.auto_remove_failed_url = bool(auto_remove_failed_url)
@@ -96,20 +104,55 @@ class TrafficConsumer:
         )
         self.urls = self.url_manager.urls
 
-    def _default_logger(self, message, color=None):
-        if color:
-            print(f"{color}{message}{Style.RESET_ALL}")
-        else:
-            print(message)
-
-    def _wrap_logger(self, logger_callable):
-        """兼容只接受单参数的日志函数。"""
+    def _setup_cli_logger(self):
+        """设置 CLI 模式的日志记录器"""
+        import logging
+        self._python_logger = setup_logger('traffic_consumer.consumer', level=logging.INFO)
+        self.logger = self._make_compatible_logger(self._python_logger)
+    
+    def _setup_web_logger(self, web_logger_callable):
+        """设置 Web 模式的日志记录器，保持兼容性"""
+        import logging
+        # 创建一个基本的 logger，但不使用它的输出
+        self._python_logger = setup_logger('traffic_consumer.consumer', level=logging.INFO)
+        # 包装 web logger 使其兼容旧接口
+        self.logger = self._wrap_web_logger(web_logger_callable, self._python_logger)
+    
+    def _make_compatible_logger(self, python_logger):
+        """将 Python logging.Logger 包装为兼容旧接口的函数"""
+        def compatible_logger(message, color=None):
+            # 根据颜色映射到日志级别
+            color_to_level = {
+                Fore.RED: 'error',
+                Fore.YELLOW: 'warning',
+                Fore.GREEN: 'info',
+                Fore.CYAN: 'info',
+                Fore.BLUE: 'info',
+            }
+            level = color_to_level.get(color, 'info')
+            getattr(python_logger, level)(message)
+        return compatible_logger
+    
+    def _wrap_web_logger(self, web_logger_callable, python_logger):
+        """包装 Web logger 使其兼容旧接口，同时保持 Web 功能"""
         def safe_logger(message, color=None):
+            # 调用 Web logger
             try:
-                return logger_callable(message, color)
+                web_logger_callable(message, color)
             except TypeError:
                 payload = {"message": message, "color": color}
-                return logger_callable(payload)
+                web_logger_callable(payload)
+            
+            # 同时记录到 Python logging（用于调试）
+            color_to_level = {
+                Fore.RED: 'error',
+                Fore.YELLOW: 'warning',
+                Fore.GREEN: 'info',
+                Fore.CYAN: 'info',
+                Fore.BLUE: 'info',
+            }
+            level = color_to_level.get(color, 'info')
+            getattr(python_logger, level)(message)
         return safe_logger
 
     def _reset_limit_flags(self):
@@ -378,8 +421,7 @@ class TrafficConsumer:
             self.status = "等待执行"
             
             # 在CLI模式下，保持主线程活动以显示倒计时
-            is_cli_mode = self.logger == self._default_logger
-            if is_cli_mode:
+            if self._is_cli_mode:
                 signal.signal(signal.SIGINT, self.handle_signal)
                 signal.signal(signal.SIGTERM, self.handle_signal)
                 while self.scheduler.running:
@@ -459,7 +501,7 @@ class TrafficConsumer:
         
         stats_thread = None
         # 仅在CLI模式下启动独立的统计显示线程
-        if self.logger == self._default_logger:
+        if self._is_cli_mode:
             stats_thread = threading.Thread(target=self.display_stats)
             stats_thread.daemon = True
             stats_thread.start()
