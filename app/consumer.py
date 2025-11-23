@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import http.client
+import logging
 from datetime import datetime
 
 import requests
@@ -35,6 +36,15 @@ init(autoreset=True)
 
 
 class TrafficConsumer:
+    # 颜色到日志级别的映射 (用于兼容旧的 colorama 接口)
+    COLOR_TO_LEVEL = {
+        Fore.RED: 'error',
+        Fore.YELLOW: 'warning',
+        Fore.GREEN: 'info',
+        Fore.CYAN: 'info',
+        Fore.BLUE: 'info',
+    }
+    
     def __init__(self, urls=None, threads=1, limit_speed=0,
                  duration=None, count=None, cron_expr=None,
                  traffic_limit=None, interval=None,
@@ -106,13 +116,11 @@ class TrafficConsumer:
 
     def _setup_cli_logger(self):
         """设置 CLI 模式的日志记录器"""
-        import logging
         self._python_logger = setup_logger('traffic_consumer.consumer', level=logging.INFO)
         self.logger = self._make_compatible_logger(self._python_logger)
     
     def _setup_web_logger(self, web_logger_callable):
         """设置 Web 模式的日志记录器，保持兼容性"""
-        import logging
         # 创建一个基本的 logger，但不使用它的输出
         self._python_logger = setup_logger('traffic_consumer.consumer', level=logging.INFO)
         # 包装 web logger 使其兼容旧接口
@@ -122,14 +130,7 @@ class TrafficConsumer:
         """将 Python logging.Logger 包装为兼容旧接口的函数"""
         def compatible_logger(message, color=None):
             # 根据颜色映射到日志级别
-            color_to_level = {
-                Fore.RED: 'error',
-                Fore.YELLOW: 'warning',
-                Fore.GREEN: 'info',
-                Fore.CYAN: 'info',
-                Fore.BLUE: 'info',
-            }
-            level = color_to_level.get(color, 'info')
+            level = self.COLOR_TO_LEVEL.get(color, 'info')
             getattr(python_logger, level)(message)
         return compatible_logger
     
@@ -144,14 +145,7 @@ class TrafficConsumer:
                 web_logger_callable(payload)
             
             # 同时记录到 Python logging（用于调试）
-            color_to_level = {
-                Fore.RED: 'error',
-                Fore.YELLOW: 'warning',
-                Fore.GREEN: 'info',
-                Fore.CYAN: 'info',
-                Fore.BLUE: 'info',
-            }
-            level = color_to_level.get(color, 'info')
+            level = self.COLOR_TO_LEVEL.get(color, 'info')
             getattr(python_logger, level)(message)
         return safe_logger
 
