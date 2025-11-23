@@ -247,8 +247,8 @@ gc.disable()
 ```bash
 docker run -d \
   --cpus="2.0" \              # 限制 CPU 使用
-  --memory="1g" \              # 限制内存
-  --memory-swap="2g" \         # 限制交换空间
+  --memory="1g" \              # 限制内存（物理内存）
+  --memory-swap="1g" \         # 总内存限制（RAM + Swap = 1g）
   -p 5001:5001 \
   -v $HOME/.traffic_consumer_data:/root/.traffic_consumer \
   --name traffic_consumer \
@@ -277,7 +277,7 @@ docker run -d \
 # Linux - 修改 /etc/resolv.conf
 nameserver 8.8.8.8        # Google DNS
 nameserver 1.1.1.1        # Cloudflare DNS
-nameserver 223.5.5.5      # 阿里 DNS
+nameserver 223.5.5.5      # 阿里云 DNS (AliDNS)
 ```
 
 **Python 代码中预解析：**

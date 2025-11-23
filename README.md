@@ -182,7 +182,7 @@ python traffic_consumer.py --no-gui | tee -a /var/log/traffic_consumer.log
 version: '3'
 services:
   traffic_consumer:
-    image: baitaotao521/traffic_consumer:latest
+    image: baitaotao521/traffic_consumer:v2.4.0  # 使用特定版本而非 latest
     container_name: traffic_consumer
     restart: unless-stopped
     ports:

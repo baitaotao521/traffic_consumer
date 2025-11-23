@@ -65,8 +65,13 @@ class ColoredFormatter(logging.Formatter):
     
     def format(self, record):
         if sys.stdout.isatty():
+            # 保存原始 levelname 避免影响其他 handler
+            original_levelname = record.levelname
             levelname = record.levelname
             record.levelname = f"{self.COLORS.get(levelname, '')}{levelname}{self.COLORS['RESET']}"
+            result = super().format(record)
+            record.levelname = original_levelname  # 恢复原始值
+            return result
         return super().format(record)
 
 
@@ -281,6 +286,7 @@ class ConsumerConfig:
     limit_speed: int = 0
     duration: Optional[int] = None
     count: Optional[int] = None
+    traffic_limit: Optional[int] = None
     
     def __post_init__(self):
         """配置验证"""
@@ -355,7 +361,7 @@ def _calculate_weight(self, current_usage: int, expected_avg: float) -> float:
     
     usage_ratio = current_usage / expected_avg if expected_avg > 0 else 1.0
     
-    # 使用指数衰减函数
+    # 使用线性权重调整算法
     if usage_ratio < 1.0:
         # 使用次数少，权重高
         return 1.0 + (1.0 - usage_ratio)
