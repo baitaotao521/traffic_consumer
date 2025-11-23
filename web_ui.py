@@ -14,6 +14,8 @@ from colorama import Fore
 
 from app.config import STATS_FILE
 from app.consumer import TrafficConsumer
+from app.logger import WebSocketHandler, setup_logger
+import logging
 
 # 初始化 Flask 和 SocketIO
 app = Flask(__name__)
