@@ -93,6 +93,7 @@ class TrafficConsumer:
             logger=self.logger,
             history_callback=history_callback,
             history_limit=50,
+            config_name=self.config_name,
         )
         self.urls = self.url_manager.urls
 

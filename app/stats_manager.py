@@ -28,11 +28,13 @@ class StatsManager:
         logger: Callable[[str, Optional[str]], None],
         history_callback: Optional[Callable[[Dict], None]] = None,
         history_limit: int = 50,
+        config_name: Optional[str] = None,
     ) -> None:
         self.logger = logger
         self.history_callback = history_callback
         self.history_limit = history_limit
         self.history: List[Dict] = []
+        self.config_name = config_name or "default"
 
     def display_stats(self, consumer: TrafficConsumer, url_manager: UrlManager) -> None:
         """实时刷新 CLI 统计界面。"""
@@ -134,6 +136,7 @@ class StatsManager:
             "result": result,
             "bytes_consumed": self.format_bytes(bytes_consumed),
             "download_count": download_count,
+            "config_name": self.config_name,
         }
         self.history.insert(0, record)
         if len(self.history) > self.history_limit:

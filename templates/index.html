@@ -137,10 +137,13 @@
                     <div class="card-header">
                         <ul class="nav nav-tabs card-header-tabs" id="info-tab" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active" id="scheduler-tab" data-bs-toggle="tab" data-bs-target="#scheduler-panel" type="button" role="tab"><i class="bi bi-calendar-heart"></i> 调度与历史</button>
+                                <button class="nav-link active" id="scheduler-tab" data-bs-toggle="tab" data-bs-target="#scheduler-panel" type="button" role="tab" aria-selected="true"><i class="bi bi-calendar-heart"></i> 调度与历史</button>
                             </li>
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="log-tab" data-bs-toggle="tab" data-bs-target="#log-panel" type="button" role="tab"><i class="bi bi-body-text"></i> 实时日志</button>
+                                <button class="nav-link" id="multi-tab-btn" data-bs-toggle="tab" data-bs-target="#multi-panel" type="button" role="tab" aria-selected="false"><i class="bi bi-layers"></i> 多任务调度</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="log-tab" data-bs-toggle="tab" data-bs-target="#log-panel" type="button" role="tab" aria-selected="false"><i class="bi bi-body-text"></i> 实时日志</button>
                             </li>
                         </ul>
                     </div>
@@ -152,9 +155,31 @@
                             <h6 class="card-subtitle mb-2 text-muted mt-3">执行历史</h6>
                             <div style="height: 180px; overflow-y: auto;">
                                 <table class="table table-sm table-hover">
-                                    <thead><tr><th>时间</th><th>结果</th><th>流量</th><th>下载数</th></tr></thead>
+                                    <thead><tr><th>时间</th><th>配置</th><th>结果</th><th>流量</th><th>下载数</th></tr></thead>
                                     <tbody id="history-table-body"></tbody>
                                 </table>
+                            </div>
+                        </div>
+                        <!-- 多任务面板 -->
+                        <div class="tab-pane fade" id="multi-panel" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-lg-7">
+                                    <p class="text-muted small mb-2">当前计划</p>
+                                    <div id="multi-job-list" class="list-group list-group-flush small">
+                                        <div class="text-muted small px-2 py-2">暂无多任务计划。</div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-5">
+                                    <div class="multi-scheduler-panel">
+                                        <p class="mb-2 fw-semibold">批量控制</p>
+                                        <p class="text-muted small">按住 Ctrl / Cmd 可多选多个配置。</p>
+                                        <select id="multi-config-select" class="form-select form-select-sm mb-3" multiple></select>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-primary" id="start-multi-btn"><i class="bi bi-plus-circle"></i> 批量启动</button>
+                                            <button class="btn btn-outline-secondary" id="stop-multi-btn"><i class="bi bi-x-circle"></i> 停止全部</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <!-- 日志面板 -->
@@ -285,7 +310,6 @@
                             <div id="cron-preview" class="form-text mt-2"></div>
                         </div>
                     </div>
-                </div>
             </div>
             <div class="d-flex justify-content-between mt-3">
                 <button class="btn btn-outline-secondary" id="reset-config-btn"><i class="bi bi-arrow-counterclockwise"></i> 清空</button>

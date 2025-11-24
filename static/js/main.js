@@ -41,6 +41,10 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const totalThreadCountEl = document.getElementById('total-thread-count');
     const erroredThreadCountEl = document.getElementById('errored-thread-count');
     const currentConfigEl = document.getElementById('current-config');
+    const multiConfigSelect = document.getElementById('multi-config-select');
+    const startMultiBtn = document.getElementById('start-multi-btn');
+    const stopMultiBtn = document.getElementById('stop-multi-btn');
+    const multiJobList = document.getElementById('multi-job-list');
 
     let selectedConfigName = null;
     let selectedConfigDetail = null;
@@ -517,6 +521,35 @@ document.addEventListener('DOMContentLoaded', (event) => {
         updateUrlPieChart(stats);
     }
 
+    function renderMultiJobs(jobs = []) {
+        if (!multiJobList) return;
+        multiJobList.innerHTML = '';
+        if (!Array.isArray(jobs) || jobs.length === 0) {
+            multiJobList.innerHTML = '<div class="text-muted small px-2 py-2">暂无多任务计划。</div>';
+            return;
+        }
+
+        jobs.forEach((job) => {
+            const item = document.createElement('div');
+            item.className = 'list-group-item';
+
+            const title = document.createElement('div');
+            title.className = 'job-title';
+            title.textContent = job.config_name || '未命名配置';
+
+            const meta = document.createElement('div');
+            meta.className = 'job-meta';
+            const statusText = job.running ? '运行中' : '已停止';
+            const detailText = job.job_details || '未配置';
+            const nextRun = job.next_run_time ? new Date(job.next_run_time).toLocaleString() : '未计划';
+            meta.textContent = `${statusText} · ${detailText} · 下次: ${nextRun}`;
+
+            item.appendChild(title);
+            item.appendChild(meta);
+            multiJobList.appendChild(item);
+        });
+    }
+
     function pushAlert(data = {}) {
         if (!notificationArea) return;
         const wrapper = document.createElement('div');
@@ -524,7 +557,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
         wrapper.setAttribute('role', 'alert');
 
         const title = document.createElement('strong');
-        title.textContent = '下载失败：';
+        const prefix = data.config_name ? `[${data.config_name}] ` : '';
+        title.textContent = `${prefix}下载失败：`;
 
         const message = document.createElement('span');
         const baseMessage = data.message || (data.url ? `链接 ${data.url} 已连续失败，已停止重试。` : '存在下载链接失效，已停止重试。');
@@ -555,6 +589,26 @@ document.addEventListener('DOMContentLoaded', (event) => {
             notificationArea.removeChild(notificationArea.firstChild);
         }
     }
+
+    function pushFeedback({ message, level = 'info' }) {
+        if (!notificationArea || !message) return;
+        const wrapper = document.createElement('div');
+        wrapper.className = `alert alert-${level} alert-dismissible fade show`;
+        wrapper.setAttribute('role', 'alert');
+        wrapper.textContent = message;
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn-close';
+        closeBtn.setAttribute('data-bs-dismiss', 'alert');
+        closeBtn.setAttribute('aria-label', '关闭');
+        wrapper.appendChild(closeBtn);
+        notificationArea.appendChild(wrapper);
+        while (notificationArea.children.length > 3) {
+            notificationArea.removeChild(notificationArea.firstChild);
+        }
+    }
+
+    // Bootstrap 管理标签切换，无需额外 JS
 
     // --- Socket.IO 事件处理 ---
     socket.on('connect', () => {
@@ -613,6 +667,23 @@ document.addEventListener('DOMContentLoaded', (event) => {
             } else {
                 editorActiveConfig = null;
                 editorConfigSelect.value = '';
+            }
+        }
+
+        if (multiConfigSelect) {
+            multiConfigSelect.innerHTML = '';
+            if (!configs.length) {
+                const option = document.createElement('option');
+                option.disabled = true;
+                option.textContent = '暂无配置';
+                multiConfigSelect.appendChild(option);
+            } else {
+                configs.forEach((name) => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    multiConfigSelect.appendChild(option);
+                });
             }
         }
     });
@@ -674,7 +745,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
     socket.on('history_update', (record) => {
         const row = historyTableBody.insertRow(0);
-        row.innerHTML = `<td>${new Date(record.timestamp).toLocaleString()}</td><td>${record.result}</td><td>${record.bytes_consumed}</td><td>${record.download_count || 'N/A'}</td>`;
+        const configLabel = record.config_name || record.config || '未命名配置';
+        row.innerHTML = `<td>${new Date(record.timestamp).toLocaleString()}</td><td>${configLabel}</td><td>${record.result}</td><td>${record.bytes_consumed}</td><td>${record.download_count || 'N/A'}</td>`;
         const noHistoryRow = historyTableBody.querySelector('.no-history');
         if (noHistoryRow) noHistoryRow.remove();
         while (historyTableBody.rows.length > 50) {
@@ -716,6 +788,10 @@ document.addEventListener('DOMContentLoaded', (event) => {
         pushAlert(data);
     });
 
+    socket.on('multi_scheduler_feedback', (payload = {}) => {
+        pushFeedback(payload);
+    });
+
     let countdownInterval;
     socket.on('scheduler_status_update', (data) => {
         jobDetailsEl.textContent = data.job_details || '无';
@@ -746,12 +822,15 @@ document.addEventListener('DOMContentLoaded', (event) => {
         historyTableBody.innerHTML = '';
         if (data.history && data.history.length > 0) {
             data.history.forEach(item => {
+                const configLabel = item.config_name || item.config || '未命名配置';
                 const row = historyTableBody.insertRow();
-                row.innerHTML = `<td>${new Date(item.timestamp).toLocaleString()}</td><td>${item.result}</td><td>${item.bytes_consumed}</td><td>${item.download_count || 'N/A'}</td>`;
+                row.innerHTML = `<td>${new Date(item.timestamp).toLocaleString()}</td><td>${configLabel}</td><td>${item.result}</td><td>${item.bytes_consumed}</td><td>${item.download_count || 'N/A'}</td>`;
             });
         } else {
-            historyTableBody.innerHTML = '<tr class="no-history text-center"><td colspan="4">暂无历史记录</td></tr>';
+            historyTableBody.innerHTML = '<tr class="no-history text-center"><td colspan="5">暂无历史记录</td></tr>';
         }
+
+        renderMultiJobs(Array.isArray(data.multi_jobs) ? data.multi_jobs : []);
     });
     
     // --- 事件监听 ---
@@ -787,6 +866,13 @@ document.addEventListener('DOMContentLoaded', (event) => {
         return normalized;
     }
 
+    function getSelectedMultiConfigs(selectElement = multiConfigSelect) {
+        if (!selectElement) return [];
+        return Array.from(selectElement.selectedOptions || [])
+            .map((option) => option.value)
+            .filter((value) => value);
+    }
+
     startBtn.addEventListener('click', () => {
         if (!selectedConfigName || !selectedConfigDetail) {
             pushAlert({ message: '请选择有效的运行配置后再启动。' });
@@ -804,6 +890,23 @@ document.addEventListener('DOMContentLoaded', (event) => {
     });
 
     stopSchedulerBtn.addEventListener('click', () => socket.emit('stop_scheduler'));
+
+    if (startMultiBtn) {
+        startMultiBtn.addEventListener('click', () => {
+            const selections = getSelectedMultiConfigs();
+            if (!selections.length) {
+                pushFeedback({ level: 'warning', message: '请先选择要启动的配置。' });
+                return;
+            }
+            socket.emit('start_multi_configs', { config_names: selections });
+        });
+    }
+
+    if (stopMultiBtn) {
+        stopMultiBtn.addEventListener('click', () => {
+            socket.emit('stop_multi_configs', {});
+        });
+    }
 
     saveConfigBtn.addEventListener('click', () => {
         const config = getConfigFromForm();

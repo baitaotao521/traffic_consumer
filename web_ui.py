@@ -14,6 +14,7 @@ from colorama import Fore
 
 from app.config import STATS_FILE
 from app.consumer import TrafficConsumer
+from app.runtime_utils import build_consumer_from_sources
 
 # 初始化 Flask 和 SocketIO
 app = Flask(__name__)
@@ -26,6 +27,9 @@ consumer_thread = None
 status_thread = None
 status_thread_stop = threading.Event()
 log_enabled = False
+multi_consumers = {}
+multi_threads = {}
+multi_lock = threading.Lock()
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-9;]*m")
 COLOR_TO_CSS = {
     Fore.RED: "#dc3545",
@@ -43,6 +47,51 @@ def strip_ansi(text: str) -> str:
     if not text:
         return ""
     return ANSI_ESCAPE_RE.sub("", text)
+
+
+def create_log_emitter(config_name: str = ""):
+    """构造带可选前缀的日志回调，复用 Web 日志管道。"""
+
+    def log_emitter(message, color=None):
+        if isinstance(message, dict):
+            color = message.get("color", color)
+            message = message.get("message", "")
+        plain_message = strip_ansi(message or "")
+        prefix = f"[{config_name}] " if config_name else ""
+        display_message = f"{prefix}{plain_message}"
+        color_value = COLOR_TO_CSS.get(color, color)
+        if not log_enabled:
+            return
+        payload = {"message": display_message}
+        if color_value:
+            payload["color"] = color_value
+        socketio.emit("log_message", payload)
+
+    return log_emitter
+
+
+def create_history_emitter(config_name: str = ""):
+    """追加配置名称后广播历史记录。"""
+
+    def history_emitter(record):
+        enriched = dict(record)
+        if config_name:
+            enriched.setdefault("config_name", config_name)
+        socketio.emit("history_update", enriched)
+
+    return history_emitter
+
+
+def create_invalid_url_emitter(config_name: str = ""):
+    """在失效通知中带上配置名称，便于前端区分。"""
+
+    def invalid_url_emitter(payload):
+        message = dict(payload) if isinstance(payload, dict) else {"message": str(payload)}
+        if config_name:
+            message.setdefault("config_name", config_name)
+        socketio.emit("invalid_url", message)
+
+    return invalid_url_emitter
 
 def load_history_from_stats():
     """从stats.json加载历史运行记录"""
@@ -63,7 +112,8 @@ def load_history_from_stats():
                 "timestamp": stats.get('end_time') or stats.get('start_time'),
                 "result": "成功",  # 保存到stats的都是完成的任务
                 "bytes_consumed": temp_consumer.format_bytes(stats.get('total_bytes', 0)),
-                "download_count": stats.get('download_count', 0)
+                "download_count": stats.get('download_count', 0),
+                "config_name": stats.get('config_name', '未命名配置')
             }
             history.append(record)
 
@@ -72,6 +122,35 @@ def load_history_from_stats():
     except Exception as e:
         print(f"加载历史记录失败: {e}")
         return []
+
+
+def get_multi_jobs_status():
+    """生成当前多任务调度器的状态快照。"""
+    jobs = []
+    with multi_lock:
+        consumer_items = list(multi_consumers.items())
+    for name, consumer in consumer_items:
+        next_run_time = None
+        job_details = None
+        running = False
+        if consumer.scheduler and consumer.scheduler.running:
+            running = True
+            job = consumer.scheduler.get_job("traffic_consumer_job")
+            if job and job.next_run_time:
+                next_run_time = job.next_run_time.isoformat()
+            if consumer.cron_expr:
+                job_details = f"Cron: {consumer.cron_expr}"
+            elif consumer.interval:
+                job_details = f"Interval: {consumer.interval} minutes"
+        jobs.append(
+            {
+                "config_name": name,
+                "job_details": job_details,
+                "next_run_time": next_run_time,
+                "running": running,
+            }
+        )
+    return jobs
 
 def status_emitter():
     """定期向前端发送状态更新"""
@@ -155,7 +234,8 @@ def scheduler_status_emitter():
             status = {
                 'next_run_time': next_run_time,
                 'job_details': job_details,
-                'history': unique_history[:50]  # 限制50条
+                'history': unique_history[:50],  # 限制50条
+                'multi_jobs': get_multi_jobs_status(),
             }
             socketio.emit('scheduler_status_update', status)
         else:
@@ -164,7 +244,8 @@ def scheduler_status_emitter():
             socketio.emit('scheduler_status_update', {
                 'next_run_time': None,
                 'job_details': None,
-                'history': stored_history
+                'history': stored_history,
+                'multi_jobs': get_multi_jobs_status(),
             })
         socketio.sleep(2) # 调度器状态不需要太频繁更新
 
@@ -218,41 +299,14 @@ def handle_start(data):
     if consumer_thread and consumer_thread.is_alive():
         emit('error', {'message': '流量消耗器已在运行。'})
         return
-
-    def log_emitter(message, color=None):
-        if isinstance(message, dict):
-            color = message.get('color', color)
-            message = message.get('message', '')
-        plain_message = strip_ansi(message or '')
-        color_value = COLOR_TO_CSS.get(color, color)
-        if not log_enabled:
-            return
-        payload = {'message': plain_message}
-        if color_value:
-            payload['color'] = color_value
-        socketio.emit('log_message', payload)
-
-    def history_emitter(record):
-        socketio.emit('history_update', record)
-
-    def invalid_url_emitter(payload):
-        socketio.emit('invalid_url', payload)
-
-    consumer_instance = TrafficConsumer(
-        urls=data.get('urls'),
-        url_strategy=data.get('url_strategy'),
-        threads=data.get('threads'),
-        limit_speed=data.get('limit_speed'),
-        duration=data.get('duration'),
-        count=data.get('count'),
-        traffic_limit=data.get('traffic_limit'),
-        cron_expr=data.get('cron_expr'),
-        interval=data.get('interval'),
-        config_name=data.get('config_name'),
-        logger=log_emitter,
-        history_callback=history_emitter,
-        invalid_url_callback=invalid_url_emitter,
-        auto_remove_failed_url=data.get('auto_remove_failed_url', False)
+    config_name = data.get('config_name')
+    consumer_instance = build_consumer_from_sources(
+        config=data,
+        overrides=None,
+        config_name=config_name,
+        logger=create_log_emitter(config_name),
+        history_callback=create_history_emitter(config_name),
+        invalid_url_callback=create_invalid_url_emitter(config_name),
     )
 
     consumer_thread = threading.Thread(target=consumer_instance.start)
@@ -288,6 +342,111 @@ def handle_stop_scheduler():
         socketio.emit('request_status_update')
     else:
         emit('error', {'message': '调度器未在运行。'})
+
+
+@socketio.on('start_multi_configs')
+def handle_start_multi_configs(data):
+    """启动多配置调度任务。"""
+    config_names = data.get('config_names') or data.get('configs') or []
+    if not config_names:
+        emit('multi_scheduler_feedback', {'level': 'warning', 'message': '请选择至少一个配置。'})
+        return
+
+    all_configs = TrafficConsumer.load_config('_all_') or {}
+    if not all_configs:
+        emit('multi_scheduler_feedback', {'level': 'warning', 'message': '当前没有可用配置。'})
+        return
+
+    requested = []
+    for name in config_names:
+        if name == '_all_':
+            requested.extend(all_configs.keys())
+        else:
+            requested.append(name)
+
+    unique_names = []
+    for name in requested:
+        if name not in unique_names:
+            unique_names.append(name)
+
+    started = []
+    skipped = []
+    for name in unique_names:
+        config = all_configs.get(name)
+        if not config:
+            skipped.append(f"{name} (不存在)")
+            continue
+        with multi_lock:
+            if name in multi_consumers:
+                skipped.append(f"{name} (已运行)")
+                continue
+        consumer = build_consumer_from_sources(
+            config=config,
+            overrides=None,
+            config_name=name,
+            logger=create_log_emitter(name),
+            history_callback=create_history_emitter(name),
+            invalid_url_callback=create_invalid_url_emitter(name),
+        )
+        if not (consumer.cron_expr or consumer.interval):
+            skipped.append(f"{name} (未设置调度)")
+            continue
+        runner = threading.Thread(target=consumer.start, name=f"multi-consumer-{name}")
+        runner.daemon = True
+        runner.start()
+        with multi_lock:
+            multi_consumers[name] = consumer
+            multi_threads[name] = runner
+        started.append(name)
+
+    if not started:
+        emit('multi_scheduler_feedback', {
+            'level': 'warning',
+            'message': '没有新的计划任务被启动。',
+            'skipped': skipped
+        })
+        return
+
+    message_parts = [f"已启动: {', '.join(started)}"]
+    if skipped:
+        message_parts.append(f"跳过: {', '.join(skipped)}")
+    emit('multi_scheduler_feedback', {
+        'level': 'success',
+        'message': '；'.join(message_parts)
+    })
+
+
+@socketio.on('stop_multi_configs')
+def handle_stop_multi_configs(data):
+    """停止一个或多个多任务调度。"""
+    names = data.get('config_names') or data.get('configs') or []
+    stop_all = not names or '_all_' in names
+
+    with multi_lock:
+        if stop_all:
+            target_names = list(multi_consumers.keys())
+        else:
+            target_names = [name for name in names if name in multi_consumers]
+        consumers_to_stop = []
+        for name in target_names:
+            consumer = multi_consumers.pop(name, None)
+            multi_threads.pop(name, None)
+            if consumer:
+                consumers_to_stop.append((name, consumer))
+
+    if not consumers_to_stop:
+        emit('multi_scheduler_feedback', {'level': 'info', 'message': '没有需要停止的任务。'})
+        return
+
+    for name, consumer in consumers_to_stop:
+        if consumer.scheduler and consumer.scheduler.running:
+            consumer.scheduler.shutdown()
+        consumer.active = False
+
+    emit('multi_scheduler_feedback', {
+        'level': 'success',
+        'message': f"已停止: {', '.join(name for name, _ in consumers_to_stop)}"
+    })
 
 @socketio.on('get_configs')
 def handle_get_configs():

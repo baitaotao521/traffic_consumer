@@ -24,6 +24,7 @@
 - **URL 策略与治理**：支持随机/轮询，记录每条 URL 的使用占比，可选择“失败自动移除”防止坏链污染配置。
 - **实时可视化**：速度曲线、线程状态、URL 饼图、日志流、调度倒计时全部集中显示。
 - **调度自动化**：Cron 与固定间隔二选一，带未来触发预览与单击停止。
+- **多任务调度**：CLI `--multi-configs` 与 Web “多任务调度” 面板均可一次性拉起多个配置，并独立按 cron/interval 周期运行。
 - **持久化存储**：配置与统计写入 `~/.traffic_consumer/`，Web/CLI 共享。
 - **跨平台交付**：提供 Docker 镜像、PyInstaller 打包脚本与 GitHub Actions 工作流。
 
@@ -78,6 +79,7 @@ python traffic_consumer.py --no-gui # CLI
 - **调度中心**：查看下一次执行时间、倒计时和最近 50 条历史，支持一键停止调度。
 - **实时日志**：按需订阅 Socket 日志推送，前端负责渲染颜色，避免 ANSI 乱码。
 - **失效告警**：URL 连续失败达到阈值后触发通知，并可自动从运行实例/配置文件移除。
+- **多任务调度**：在“调度与历史”卡片中新增多选面板，可批量选择配置并一键启动/停止多条计划，界面会实时显示每个任务的下一次运行时间与状态。
 
 ### 命令行
 
@@ -94,6 +96,16 @@ python traffic_consumer.py \
 - 适合嵌入 CI 或远程主机。
 - 使用 `--save-config/--load-config` 管理持久化配置；`--show-stats` 快速查看历史。
 - 按 `Ctrl+C` 可随时停止，历史与统计仍会写入本地。
+- 需要一次跑多个计划任务？保存好不同配置后执行：
+
+```bash
+python traffic_consumer.py --no-gui --multi-configs task1 task2
+# 或使用 _all_ 自动加载全部配置
+python traffic_consumer.py --no-gui --multi-configs _all_
+```
+
+每个任务都会复用各自的 cron/interval 设置并独立写入历史记录。
+如果偏好图形化，也可在 Web 控制台的“多任务调度”区域选择配置后点击“批量启动”，等价于 CLI 的 `--multi-configs`。
 
 ---
 
@@ -125,6 +137,7 @@ python traffic_consumer.py \
 | `--cron` / `--interval` | 定时任务（二者互斥） | 不启用 |
 | `--auto-remove-failed-url` | URL 连续失败后自动从配置中删除 | 关闭 |
 | `--config` | 指定配置名，并配合 `--load-config/--save-config` | `default` |
+| `--multi-configs` | 同时启动多个已保存配置，可输入多个名称或 `_all_` | 关闭 |
 | `--show-stats` | 打印最近 N 条历史（配合 `--stats-limit`） | 关闭 |
 | `--no-gui` | 禁用 Web UI，仅运行 CLI | 关闭 |
 

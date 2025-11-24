@@ -243,6 +243,25 @@ h1 {
     box-shadow: 0 8px 20px rgba(255, 182, 193, 0.2);
 }
 
+.multi-scheduler-panel select {
+    min-height: 140px;
+}
+
+#multi-job-list .list-group-item {
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+}
+
+#multi-job-list .job-title {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+#multi-job-list .job-meta {
+    font-size: 0.8rem;
+    color: #666;
+}
+
 .config-offcanvas {
     --bs-offcanvas-width: clamp(480px, 60vw, 100vw);
     width: clamp(480px, 60vw, 100vw);

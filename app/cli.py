@@ -4,9 +4,13 @@
 """命令行参数解析与运行逻辑。"""
 
 import argparse
+import time
+
+from colorama import Fore, Style
 
 from app.config import DEFAULT_URLS
 from app.consumer import TrafficConsumer
+from app.runtime_utils import build_consumer_from_sources
 
 
 def parse_args():
@@ -56,12 +60,89 @@ def parse_args():
     # UI
     parser.add_argument("--no-gui", action="store_true",
                       help="不启动Web UI，仅使用命令行")
+
+    parser.add_argument("--multi-configs", nargs="+", default=None,
+                      help="一次性启动多个已保存的配置，可输入多个名称或使用 _all_ 代表全部配置")
     
     return parser.parse_args()
 
 
+def prefixed_logger(config_name: str):
+    """为多任务模式构造带前缀的日志函数"""
+
+    def _logger(message, color=None):
+        prefix = f"[{config_name}] "
+        text = f"{prefix}{message}"
+        if color:
+            print(f"{color}{text}{Style.RESET_ALL}")
+        else:
+            print(text)
+
+    return _logger
+
+
+def run_multi_configs(args: argparse.Namespace):
+    """批量启动多个配置对应的计划任务"""
+    configs = TrafficConsumer.load_config("_all_") or {}
+    if not configs:
+        print(f"{Fore.YELLOW}没有可用配置，无法启动多任务。{Style.RESET_ALL}")
+        return
+
+    requested = []
+    for name in args.multi_configs:
+        if name == "_all_":
+            requested.extend(configs.keys())
+        else:
+            requested.append(name)
+
+    unique_names = []
+    for name in requested:
+        if name not in unique_names:
+            unique_names.append(name)
+
+    consumers = []
+    for name in unique_names:
+        config = configs.get(name)
+        if not config:
+            print(f"{Fore.YELLOW}配置 \"{name}\" 不存在，已跳过。{Style.RESET_ALL}")
+            continue
+        consumer = build_consumer_from_sources(
+            config=config,
+            overrides=args,
+            config_name=name,
+            logger=prefixed_logger(name),
+        )
+        if not (consumer.cron_expr or consumer.interval):
+            print(f"{Fore.YELLOW}配置 \"{name}\" 未设置 cron/interval，不能加入计划任务，已跳过。{Style.RESET_ALL}")
+            continue
+        consumer.start()
+        consumers.append(consumer)
+
+    if not consumers:
+        print(f"{Fore.YELLOW}没有满足条件的计划任务。{Style.RESET_ALL}")
+        return
+
+    print(f"{Fore.CYAN}已启动 {len(consumers)} 个计划任务，按 Ctrl+C 停止所有任务。{Style.RESET_ALL}")
+
+    try:
+        while True:
+            if not any(c.scheduler and c.scheduler.running for c in consumers):
+                break
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print(f"{Fore.YELLOW}检测到中断信号，正在停止所有任务...{Style.RESET_ALL}")
+    finally:
+        for consumer in consumers:
+            if consumer.scheduler and consumer.scheduler.running:
+                consumer.scheduler.shutdown()
+
+
 def run_cli(args):
     """根据参数执行命令行模式"""
+    if args.multi_configs:
+        run_multi_configs(args)
+        return
+
     if args.list_configs:
         TrafficConsumer.list_configs()
         return
@@ -77,38 +158,7 @@ def run_cli(args):
     # 加载配置
     config = TrafficConsumer.load_config(args.config) if args.load_config else None
     
-    # 处理URLs参数
-    urls = None
-    if config:
-        # 兼容旧配置格式
-        if "urls" in config:
-            urls = config["urls"]
-        elif "url" in config:
-            urls = [config["url"]]  # 将单个URL转换为列表
-
-    if not urls:
-        urls = args.urls if args.urls else DEFAULT_URLS
-
-    # 创建流量消耗器实例
-    auto_remove_flag = None
-    if config and "auto_remove_failed_url" in config:
-        auto_remove_flag = bool(config.get("auto_remove_failed_url"))
-    else:
-        auto_remove_flag = args.auto_remove_failed_url
-
-    consumer = TrafficConsumer(
-        urls=urls,
-        url_strategy=config.get("url_strategy", args.url_strategy) if config else args.url_strategy,
-        threads=config["threads"] if config and "threads" in config else args.threads,
-        limit_speed=config["limit_speed"] if config and "limit_speed" in config else args.limit,
-        duration=config["duration"] if config and "duration" in config else args.duration,
-        count=config["count"] if config and "count" in config else args.count,
-        cron_expr=config["cron_expr"] if config and "cron_expr" in config else args.cron,
-        traffic_limit=config["traffic_limit"] if config and "traffic_limit" in config else args.traffic_limit,
-        interval=config["interval"] if config and "interval" in config else args.interval,
-        config_name=args.config,
-        auto_remove_failed_url=auto_remove_flag
-    )
+    consumer = build_consumer_from_sources(config=config, overrides=args, config_name=args.config)
     
     # 如果只是保存配置
     if args.save_config:
