@@ -20,7 +20,8 @@ from app.runtime_utils import build_consumer_from_sources
 # 初始化 Flask 和 SocketIO
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, async_mode='threading')
+# 允许前端 dev 端口连接 Socket.IO
+socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
 NUXT_INDEX_PATH = Path(app.static_folder or "static") / "nuxt" / "index.html"
 
 # 全局变量

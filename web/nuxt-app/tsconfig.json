@@ -1,0 +1,4 @@
+{
+  // 让编辑器和类型检查识别 #app/#imports 等 Nuxt 内置别名
+  "extends": "./.nuxt/tsconfig.json"
+}

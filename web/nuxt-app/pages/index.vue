@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Chart from 'chart.js/auto';
 import UrlTable from '~/components/UrlTable.vue';
-import { useNuxtApp, useRuntimeConfig } from '#app';
+import { useNuxtApp } from '#imports';
 
 type UrlRequestMap = Record<string, { headers?: Record<string, string>; body?: string }>;
 
@@ -15,13 +15,13 @@ const multiSelections = ref<string[]>([]);
 const form = reactive({
   name: '',
   url_strategy: '',
-  threads: null as number | null,
-  limit_speed: null as number | null,
-  traffic_limit: null as number | null,
-  duration: null as number | null,
-  count: null as number | null,
+  threads: '' as number | '',
+  limit_speed: '' as number | '',
+  traffic_limit: '' as number | '',
+  duration: '' as number | '',
+  count: '' as number | '',
   cron_expr: '',
-  interval: null as number | null,
+  interval: '' as number | '',
   auto_remove_failed_url: false
 });
 
@@ -203,13 +203,13 @@ function buildPayloadFromForm() {
 function resetForm(keepSelection = false) {
   form.name = '';
   form.url_strategy = '';
-  form.threads = null;
-  form.limit_speed = null;
-  form.traffic_limit = null;
-  form.duration = null;
-  form.count = null;
+  form.threads = '';
+  form.limit_speed = '';
+  form.traffic_limit = '';
+  form.duration = '';
+  form.count = '';
   form.cron_expr = '';
-  form.interval = null;
+  form.interval = '';
   form.auto_remove_failed_url = false;
   urlRows.value = [{ url: '', headers: '', body: '' }];
   cronPreview.value = [];
@@ -223,13 +223,13 @@ function populateForm(configName: string | null, config: any) {
   const normalized = normalizeConfigPayload(config, configName);
   form.name = normalized.name || configName || '';
   form.url_strategy = normalized.url_strategy || '';
-  form.threads = normalized.threads;
-  form.limit_speed = normalized.limit_speed;
-  form.traffic_limit = normalized.traffic_limit;
-  form.duration = normalized.duration;
-  form.count = normalized.count;
+  form.threads = normalized.threads ?? '';
+  form.limit_speed = normalized.limit_speed ?? '';
+  form.traffic_limit = normalized.traffic_limit ?? '';
+  form.duration = normalized.duration ?? '';
+  form.count = normalized.count ?? '';
   form.cron_expr = normalized.cron_expr || '';
-  form.interval = normalized.interval;
+  form.interval = normalized.interval ?? '';
   form.auto_remove_failed_url = Boolean(normalized.auto_remove_failed_url);
 
   const rows = (normalized.urls || []).map((url: string) => {
