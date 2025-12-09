@@ -1,0 +1,19 @@
+# Python artifacts
+__pycache__/
+*.pyc
+
+# Virtual env
+.venv/
+
+# Node/Nuxt artifacts
+node_modules/
+.nuxt/
+.output/
+web/nuxt-app/node_modules/
+web/nuxt-app/.nuxt/
+web/nuxt-app/.output/
+web/nuxt-app/.env
+web/nuxt-app/.vercel
+
+# OS
+.DS_Store

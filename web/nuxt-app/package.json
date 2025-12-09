@@ -1,0 +1,19 @@
+{
+  "name": "traffic-consumer-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --port 5173 --host 0.0.0.0",
+    "build": "nuxt build",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^2.16.0",
+    "chart.js": "^4.4.2",
+    "nuxt": "^3.11.2",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "sass": "^1.74.1"
+  }
+}

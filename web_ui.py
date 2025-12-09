@@ -7,7 +7,8 @@ import datetime
 import os
 import json
 import re
-from flask import Flask, render_template, request, jsonify
+from pathlib import Path
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
 from croniter import croniter
 from colorama import Fore
@@ -20,6 +21,7 @@ from app.runtime_utils import build_consumer_from_sources
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, async_mode='threading')
+NUXT_INDEX_PATH = Path(app.static_folder or "static") / "nuxt" / "index.html"
 
 # 全局变量
 consumer_instance = None
@@ -252,6 +254,9 @@ def scheduler_status_emitter():
 @app.route('/')
 def index():
     """渲染主页面"""
+    if NUXT_INDEX_PATH.exists():
+        # 优先使用 Nuxt 构建产物
+        return send_from_directory(NUXT_INDEX_PATH.parent, NUXT_INDEX_PATH.name)
     return render_template('index.html')
 
 @app.route('/api/preview_cron', methods=['POST'])
