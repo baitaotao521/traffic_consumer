@@ -105,6 +105,12 @@ def remove_url_from_config(config_name: str, url: str) -> bool:
         config["url"] = ""
         updated = True
 
+    url_requests = config.get("url_requests")
+    if isinstance(url_requests, dict) and url in url_requests:
+        url_requests.pop(url, None)
+        config["url_requests"] = url_requests
+        updated = True
+
     if not updated:
         return False
 

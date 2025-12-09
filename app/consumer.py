@@ -34,7 +34,7 @@ init(autoreset=True)
 
 
 class TrafficConsumer:
-    def __init__(self, urls=None, threads=1, limit_speed=0,
+    def __init__(self, urls=None, url_requests=None, threads=1, limit_speed=0,
                  duration=None, count=None, cron_expr=None,
                  traffic_limit=None, interval=None,
                  config_name="default", url_strategy="random", logger=None, history_callback=None,
@@ -96,8 +96,10 @@ class TrafficConsumer:
             config_name=self.config_name,
         )
         self.urls = self.url_manager.urls
+        self.url_requests = self._normalize_url_requests(url_requests, self.urls)
 
     def _default_logger(self, message, color=None):
+        """默认写入标准输出的日志实现。"""
         if color:
             print(f"{color}{message}{Style.RESET_ALL}")
         else:
@@ -114,8 +116,38 @@ class TrafficConsumer:
         return safe_logger
 
     def _reset_limit_flags(self):
+        """在新一轮下载前清空流量与次数触发标记。"""
         self._traffic_limit_triggered = False
         self._count_limit_triggered = False
+
+    def _normalize_url_requests(self, url_requests, urls):
+        """规整每个 URL 的请求选项，仅保留有效的头与体。"""
+        if not url_requests or not urls:
+            return {}
+
+        if not isinstance(url_requests, dict):
+            return {}
+
+        normalized = {}
+        for url in urls:
+            raw_options = url_requests.get(url, {})
+            if not isinstance(raw_options, dict):
+                continue
+
+            headers = raw_options.get("headers")
+            headers = headers if isinstance(headers, dict) else None
+            body = raw_options.get("body")
+            if body is not None and not isinstance(body, (str, bytes)):
+                body = str(body)
+
+            if headers or (body is not None and body != ""):
+                normalized[url] = {}
+                if headers:
+                    normalized[url]["headers"] = headers
+                if body is not None and body != "":
+                    normalized[url]["body"] = body
+
+        return normalized
         
     def download_file(self, thread_id):
         """单个线程的下载函数"""
@@ -136,7 +168,8 @@ class TrafficConsumer:
                 self.active = False
                 break
 
-            completed = self._download_with_retries(session, current_url, thread_id)
+            request_options = self.url_requests.get(current_url, {})
+            completed = self._download_with_retries(session, current_url, request_options, thread_id)
 
             if not self.active:
                 break
@@ -168,14 +201,14 @@ class TrafficConsumer:
         })
         return session
 
-    def _download_with_retries(self, session, url, thread_id):
-        """带指数退避的重试下载"""
+    def _download_with_retries(self, session, url, request_options, thread_id):
+        """带指数退避的重试下载，允许携带请求头或请求体。"""
         attempt = 1
         backoff = self.retry_backoff
 
         while attempt <= self.max_retries and self.active:
             try:
-                return self._stream_download(session, url)
+                return self._stream_download(session, url, request_options)
             except (RequestException, Timeout, http.client.IncompleteRead, ChunkedEncodingError) as exc:
                 if not self.active:
                     return False
@@ -212,13 +245,28 @@ class TrafficConsumer:
                 Fore.YELLOW
             )
 
+        if url in self.url_requests:
+            self.url_requests.pop(url, None)
 
-    def _stream_download(self, session, url):
+    def _stream_download(self, session, url, request_options):
         """执行一次流式下载，返回是否完整结束"""
         completed = True
+        headers = {}
+        body = None
 
-        with session.get(
+        if isinstance(request_options, dict):
+            headers = request_options.get("headers") if isinstance(request_options.get("headers"), dict) else {}
+            if "body" in request_options:
+                raw_body = request_options.get("body")
+                body = raw_body if isinstance(raw_body, (str, bytes)) else str(raw_body)
+
+        method = "POST" if body not in (None, "") else "GET"
+
+        with session.request(
+            method,
             url,
+            headers=headers or None,
+            data=body if body not in (None, "") else None,
             stream=True,
             timeout=(self.connect_timeout, self.read_timeout)
         ) as response:
@@ -326,6 +374,7 @@ class TrafficConsumer:
             "traffic_limit": self.traffic_limit,
             "interval": self.interval,
             "auto_remove_failed_url": self.auto_remove_failed_url,
+            "url_requests": self.url_requests,
         }
         save_config_entry(self.config_name, payload)
 

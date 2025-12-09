@@ -474,6 +474,7 @@ def handle_save_config(data):
 
     consumer = TrafficConsumer(
         urls=config_data.get('urls'),
+        url_requests=config_data.get('url_requests'),
         url_strategy=config_data.get('url_strategy'),
         threads=config_data.get('threads'),
         limit_speed=config_data.get('limit_speed'),

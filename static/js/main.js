@@ -12,7 +12,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const runningStatus = document.getElementById('running-status');
     const configInputs = {
         name: document.getElementById('config-name'),
-        urls: document.getElementById('urls'),
         threads: document.getElementById('threads'),
         limit_speed: document.getElementById('limit-speed'),
         traffic_limit: document.getElementById('traffic-limit'),
@@ -45,6 +44,11 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const startMultiBtn = document.getElementById('start-multi-btn');
     const stopMultiBtn = document.getElementById('stop-multi-btn');
     const multiJobList = document.getElementById('multi-job-list');
+    const urlTableBody = document.getElementById('url-table-body');
+    const addUrlRowBtn = document.getElementById('add-url-row');
+    const pasteUrlsBtn = document.getElementById('paste-urls-btn');
+    const batchHeadersBtn = document.getElementById('batch-headers-btn');
+    const batchBodyBtn = document.getElementById('batch-body-btn');
 
     let selectedConfigName = null;
     let selectedConfigDetail = null;
@@ -239,46 +243,230 @@ document.addEventListener('DOMContentLoaded', (event) => {
             cronPreviewEl.innerHTML = '';
         }
         editorActiveConfig = null;
+        renderUrlTable();
         if (configInputs.cron_expr) {
             configInputs.cron_expr.dispatchEvent(new Event('input'));
         }
     }
 
-    function populateEditorForm(name, config = {}) {
-        if (configInputs.name) {
-            configInputs.name.value = name || '';
+    function addUrlRow(entry = {}) {
+        if (!urlTableBody) return;
+        const row = document.createElement('tr');
+        row.classList.add('url-row');
+
+        const urlCell = document.createElement('td');
+        const urlInput = document.createElement('input');
+        urlInput.type = 'text';
+        urlInput.className = 'form-control form-control-sm url-input';
+        urlInput.placeholder = 'https://example.com/file';
+        urlInput.value = entry.url || '';
+        urlCell.appendChild(urlInput);
+
+        const headerCell = document.createElement('td');
+        const headerInput = document.createElement('textarea');
+        headerInput.className = 'form-control form-control-sm header-input';
+        headerInput.rows = 2;
+        headerInput.placeholder = '{"Authorization":"Bearer xxx"}';
+        if (entry.headers) {
+            headerInput.value = typeof entry.headers === 'string'
+                ? entry.headers
+                : JSON.stringify(entry.headers, null, 2);
         }
-        if (configInputs.urls) {
-            const urls = Array.isArray(config.urls) ? config.urls : [];
-            configInputs.urls.value = urls.join('\n');
+        headerCell.appendChild(headerInput);
+
+        const bodyCell = document.createElement('td');
+        const bodyInput = document.createElement('textarea');
+        bodyInput.className = 'form-control form-control-sm body-input';
+        bodyInput.rows = 2;
+        bodyInput.placeholder = '可选：请求体内容';
+        if (entry.body !== undefined && entry.body !== null) {
+            bodyInput.value = String(entry.body);
+        }
+        bodyCell.appendChild(bodyInput);
+
+        const actionCell = document.createElement('td');
+        actionCell.className = 'text-center';
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-outline-danger btn-sm';
+        removeBtn.innerHTML = '<i class="bi bi-trash"></i>';
+        removeBtn.addEventListener('click', () => {
+            row.remove();
+            if (!urlTableBody.querySelector('.url-row')) {
+                renderUrlTable();
+            }
+        });
+        actionCell.appendChild(removeBtn);
+
+        row.appendChild(urlCell);
+        row.appendChild(headerCell);
+        row.appendChild(bodyCell);
+        row.appendChild(actionCell);
+        urlTableBody.appendChild(row);
+    }
+
+    function renderUrlTable(entries = []) {
+        if (!urlTableBody) return;
+        urlTableBody.innerHTML = '';
+        const normalized = Array.isArray(entries) && entries.length ? entries : [{}];
+        normalized.forEach((entry) => addUrlRow(entry));
+    }
+
+    function collectUrlEntries() {
+        if (!urlTableBody) {
+            return { urls: [], urlRequests: {} };
+        }
+
+        const urls = [];
+        const urlRequests = {};
+        let error = '';
+
+        urlTableBody.querySelectorAll('.url-row').forEach((row, idx) => {
+            const urlInput = row.querySelector('.url-input');
+            const headerInput = row.querySelector('.header-input');
+            const bodyInput = row.querySelector('.body-input');
+
+            const url = urlInput && typeof urlInput.value === 'string' ? urlInput.value.trim() : '';
+            const headerText = headerInput && typeof headerInput.value === 'string' ? headerInput.value.trim() : '';
+            const bodyText = bodyInput && typeof bodyInput.value === 'string' ? bodyInput.value : '';
+
+            if (!url) {
+                return;
+            }
+            urls.push(url);
+
+            const options = {};
+            if (headerText) {
+                try {
+                    const parsed = JSON.parse(headerText);
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                        throw new Error('请求头需要是 JSON 对象');
+                    }
+                    options.headers = parsed;
+                } catch (err) {
+                    error = `第 ${idx + 1} 行请求头格式错误：${err.message}`;
+                }
+            }
+
+            if (bodyText && bodyText.trim() !== '') {
+                options.body = bodyText;
+            }
+
+            if (Object.keys(options).length) {
+                urlRequests[url] = options;
+            }
+        });
+
+        if (error) {
+            return { error };
+        }
+
+        return { urls, urlRequests };
+    }
+
+    function populateUrlTable(urls = [], urlRequests = {}) {
+        if (!Array.isArray(urls)) {
+            renderUrlTable([{}]);
+            return;
+        }
+        const entries = urls.map((url) => {
+            const options = urlRequests && typeof urlRequests === 'object' ? urlRequests[url] || {} : {};
+            const headers = options.headers && typeof options.headers === 'object' ? options.headers : '';
+            const body = options.body !== undefined && options.body !== null ? options.body : '';
+            return { url, headers, body };
+        });
+        renderUrlTable(entries);
+    }
+
+    function applyBatchHeadersToAll() {
+        if (!urlTableBody) return;
+        const raw = prompt('请输入要应用到所有链接的请求头(JSON 对象)，留空可清除：');
+        if (raw === null) {
+            return;
+        }
+        let value = '';
+        if (raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    throw new Error('请求头必须是 JSON 对象');
+                }
+                value = JSON.stringify(parsed, null, 2);
+            } catch (err) {
+                pushAlert({ message: `请求头格式有误：${err.message}` });
+                return;
+            }
+        }
+        urlTableBody.querySelectorAll('.header-input').forEach((input) => {
+            input.value = value;
+        });
+    }
+
+    function applyBatchBodyToAll() {
+        if (!urlTableBody) return;
+        const raw = prompt('请输入要应用到所有链接的请求体，留空可清除：');
+        if (raw === null) {
+            return;
+        }
+        urlTableBody.querySelectorAll('.body-input').forEach((input) => {
+            input.value = raw;
+        });
+    }
+
+    function appendUrlsFromPaste() {
+        if (!urlTableBody) return;
+        const raw = prompt('请输入链接列表，每行一个，将追加到表格：');
+        if (raw === null) {
+            return;
+        }
+        const lines = raw
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line);
+        if (!lines.length) {
+            return;
+        }
+        if (!urlTableBody.querySelector('.url-row')) {
+            renderUrlTable();
+        }
+        lines.forEach((url) => addUrlRow({ url }));
+    }
+
+    renderUrlTable();
+
+    function populateEditorForm(name, config = {}) {
+        const normalized = normalizeConfigPayload(config, name);
+        if (configInputs.name) {
+            configInputs.name.value = normalized.name || name || '';
         }
         if (configInputs.threads) {
-            configInputs.threads.value = config.threads ?? '';
+            configInputs.threads.value = normalized.threads ?? '';
         }
         if (configInputs.limit_speed) {
-            configInputs.limit_speed.value = config.limit_speed ?? '';
+            configInputs.limit_speed.value = normalized.limit_speed ?? '';
         }
         if (configInputs.traffic_limit) {
-            configInputs.traffic_limit.value = config.traffic_limit ?? '';
+            configInputs.traffic_limit.value = normalized.traffic_limit ?? '';
         }
         if (configInputs.duration) {
-            configInputs.duration.value = config.duration ?? '';
+            configInputs.duration.value = normalized.duration ?? '';
         }
         if (configInputs.count) {
-            configInputs.count.value = config.count ?? '';
+            configInputs.count.value = normalized.count ?? '';
         }
         if (configInputs.cron_expr) {
-            configInputs.cron_expr.value = config.cron_expr ?? '';
+            configInputs.cron_expr.value = normalized.cron_expr ?? '';
         }
         if (configInputs.interval) {
-            configInputs.interval.value = config.interval ?? '';
+            configInputs.interval.value = normalized.interval ?? '';
         }
         if (configInputs.url_strategy) {
-            configInputs.url_strategy.value = config.url_strategy ?? '';
+            configInputs.url_strategy.value = normalized.url_strategy ?? '';
         }
         if (configInputs.auto_remove_failed_url) {
-            configInputs.auto_remove_failed_url.checked = Boolean(config.auto_remove_failed_url);
+            configInputs.auto_remove_failed_url.checked = Boolean(normalized.auto_remove_failed_url);
         }
+        populateUrlTable(normalized.urls, normalized.url_requests);
         editorActiveConfig = name || null;
         if (cronPreviewEl) {
             cronPreviewEl.innerHTML = '';
@@ -290,7 +478,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
     function normalizeConfigPayload(config = {}, name = null) {
         const payload = {
-            urls: Array.isArray(config.urls) ? [...config.urls] : [],
             url_strategy: config.url_strategy ?? null,
             threads: config.threads ?? null,
             limit_speed: config.limit_speed ?? null,
@@ -305,14 +492,41 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
         payload.name = name || config.name || '';
 
-        payload.urls = payload.urls
-            .map((url) => {
-                if (typeof url === 'string') {
-                    return url.trim();
+        const rawUrls = Array.isArray(config.urls) ? config.urls : [];
+        payload.urls = rawUrls
+            .map((item) => {
+                if (typeof item === 'string') {
+                    return item.trim();
                 }
-                return url != null ? String(url).trim() : '';
+                if (item && typeof item === 'object' && typeof item.url === 'string') {
+                    return item.url.trim();
+                }
+                return '';
             })
             .filter((url) => url !== '');
+
+        const rawRequests = (config.url_requests && typeof config.url_requests === 'object') ? config.url_requests : {};
+        const normalizedRequests = {};
+        payload.urls.forEach((url) => {
+            const options = rawRequests[url];
+            if (!options || typeof options !== 'object') {
+                return;
+            }
+            const headers = options.headers;
+            const hasHeaders = headers && typeof headers === 'object' && !Array.isArray(headers);
+            const bodyValue = options.body;
+            const normalizedOption = {};
+            if (hasHeaders && Object.keys(headers).length) {
+                normalizedOption.headers = headers;
+            }
+            if (bodyValue !== undefined && bodyValue !== null && String(bodyValue).trim() !== '') {
+                normalizedOption.body = typeof bodyValue === 'string' ? bodyValue : String(bodyValue);
+            }
+            if (Object.keys(normalizedOption).length) {
+                normalizedRequests[url] = normalizedOption;
+            }
+        });
+        payload.url_requests = normalizedRequests;
 
         const integerKeys = ['threads', 'traffic_limit', 'duration', 'count', 'interval'];
         integerKeys.forEach((key) => {
@@ -846,20 +1060,17 @@ document.addEventListener('DOMContentLoaded', (event) => {
                 raw[key] = Boolean(element.checked);
                 return;
             }
-            if (key === 'urls') {
-                raw.urls = element.value || '';
-                return;
-            }
             const value = typeof element.value === 'string' ? element.value.trim() : element.value;
             raw[key] = value === '' ? null : value;
         });
 
-        raw.urls = raw.urls
-            ? raw.urls
-                .split(/\r?\n/)
-                .map((url) => url.trim())
-                .filter((url) => url !== '')
-            : [];
+        const urlResult = collectUrlEntries();
+        if (urlResult && urlResult.error) {
+            pushAlert({ message: urlResult.error });
+            return null;
+        }
+        raw.urls = urlResult ? urlResult.urls : [];
+        raw.url_requests = urlResult ? urlResult.urlRequests : {};
 
         const normalized = normalizeConfigPayload(raw, raw.name || null);
         normalized.name = raw.name || '';
@@ -871,6 +1082,22 @@ document.addEventListener('DOMContentLoaded', (event) => {
         return Array.from(selectElement.selectedOptions || [])
             .map((option) => option.value)
             .filter((value) => value);
+    }
+
+    if (addUrlRowBtn) {
+        addUrlRowBtn.addEventListener('click', () => addUrlRow());
+    }
+
+    if (pasteUrlsBtn) {
+        pasteUrlsBtn.addEventListener('click', appendUrlsFromPaste);
+    }
+
+    if (batchHeadersBtn) {
+        batchHeadersBtn.addEventListener('click', applyBatchHeadersToAll);
+    }
+
+    if (batchBodyBtn) {
+        batchBodyBtn.addEventListener('click', applyBatchBodyToAll);
     }
 
     startBtn.addEventListener('click', () => {
@@ -910,6 +1137,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
     saveConfigBtn.addEventListener('click', () => {
         const config = getConfigFromForm();
+        if (!config) {
+            return;
+        }
         if (!config.name) {
             pushAlert({ message: '请填写配置名称后再保存。' });
             return;

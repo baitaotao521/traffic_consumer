@@ -48,8 +48,11 @@ def build_consumer_from_sources(
         attr = override_key or key
         return _get_attr(overrides, attr)
 
+    url_requests = config.get("url_requests") if isinstance(config.get("url_requests"), dict) else {}
+
     consumer = TrafficConsumer(
         urls=list(urls),
+        url_requests=url_requests,
         url_strategy=pick_value("url_strategy"),
         threads=pick_value("threads"),
         limit_speed=pick_value("limit_speed", "limit"),

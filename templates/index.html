@@ -226,9 +226,33 @@
                                 <input type="text" class="form-control form-control-sm" id="config-name" placeholder="例如：my_pink_task">
                             </div>
                             <div class="mb-3">
-                                <label for="urls" class="form-label-sm">下载链接</label>
-                                <textarea class="form-control form-control-sm" id="urls" rows="5" placeholder="每行一个URL"></textarea>
-                                <div class="form-text">支持批量粘贴，系统会自动忽略空行。</div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <label class="form-label-sm mb-0">下载链接</label>
+                                    <div class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-outline-primary" id="add-url-row"><i class="bi bi-plus-circle"></i> 添加</button>
+                                        <button type="button" class="btn btn-outline-secondary" id="paste-urls-btn"><i class="bi bi-clipboard-plus"></i> 批量粘贴</button>
+                                        <button type="button" class="btn btn-outline-info" id="batch-headers-btn"><i class="bi bi-braces"></i> 批量请求头</button>
+                                        <button type="button" class="btn btn-outline-info" id="batch-body-btn"><i class="bi bi-file-earmark-text"></i> 批量请求体</button>
+                                    </div>
+                                </div>
+                                <div class="table-responsive small mt-2">
+                                    <table class="table table-bordered align-middle mb-1" id="url-table">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th style="width: 36%;">下载链接</th>
+                                                <th style="width: 28%;">请求头 (JSON)</th>
+                                                <th style="width: 28%;">请求体</th>
+                                                <th style="width: 8%;" class="text-center">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="url-table-body">
+                                            <tr class="text-muted">
+                                                <td colspan="4" class="text-center">暂无链接，请添加</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="form-text">使用表格为每个链接单独设置请求头/体，留空则使用默认 GET 请求。</div>
                             </div>
                             <div class="row g-3">
                                 <div class="col-md-6">
