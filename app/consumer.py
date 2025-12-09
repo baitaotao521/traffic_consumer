@@ -40,7 +40,7 @@ class TrafficConsumer:
                  config_name="default", url_strategy="random", logger=None, history_callback=None,
                  invalid_url_callback=None, auto_remove_failed_url=False):
         initial_urls = list(urls) if urls else list(DEFAULT_URLS)
-        self.threads = threads if threads is not None else 1
+        self.threads = threads if threads is not None else 4
         self.limit_speed = limit_speed if limit_speed is not None else 0  # 限速，单位MB/s，0表示不限速
         self.duration = duration  # 持续时间，单位秒
         self.count = count  # 下载次数

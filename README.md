@@ -3,6 +3,11 @@
 多线程流量消耗器，可在命令行或 Web UI 中批量拉流、限速、调度并生成统计报告，适合 CDN 验证、带宽压测和专线巡检等场景。
 
 ---
+## 禁止恶意刷他人流量
+## 禁止恶意刷他人流量
+## 禁止恶意刷他人流量
+## 造成的后果与本仓库作者无关
+
 
 ## 🧭 快速导航
 
@@ -27,6 +32,9 @@
 - **多任务调度**：CLI `--multi-configs` 与 Web “多任务调度” 面板均可一次性拉起多个配置，并独立按 cron/interval 周期运行。
 - **持久化存储**：配置与统计写入 `~/.traffic_consumer/`，Web/CLI 共享。
 - **跨平台交付**：提供 Docker 镜像、PyInstaller 打包脚本与 GitHub Actions 工作流。
+<img width="1637" height="1097" alt="image" src="https://github.com/user-attachments/assets/0001c675-4bcf-4d60-9c78-bae0bf9a378a" />
+<img width="1637" height="1097" alt="image" src="https://github.com/user-attachments/assets/e7bf32d8-8d94-4057-941a-7bfbd287a845" />
+<img width="1637" height="1097" alt="image" src="https://github.com/user-attachments/assets/68ec0d76-8e59-4cc8-9bea-18ebcc5c0967" />
 
 ---
 
