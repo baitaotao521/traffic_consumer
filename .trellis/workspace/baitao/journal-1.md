@@ -37,3 +37,36 @@ Filled backend Trellis specs from the Go implementation, documented Python as de
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: 前端新增配置入口
+
+**Date**: 2026-07-04
+**Task**: 前端新增配置入口
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+在 Vue Web 控制台顶部新增新建配置入口；新建入口打开空白配置表单，编辑入口继续预填当前配置；同步构建 static/app 并通过前端构建、主题测试、Go 测试和浏览器交互验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8c74c5c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
