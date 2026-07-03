@@ -1,0 +1,693 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/robfig/cron/v3"
+
+	"github.com/baitaotao521/traffic_consumer/internal/config"
+	"github.com/baitaotao521/traffic_consumer/internal/consumer"
+	"github.com/baitaotao521/traffic_consumer/internal/model"
+	"github.com/baitaotao521/traffic_consumer/internal/stats"
+	"github.com/baitaotao521/traffic_consumer/internal/storage"
+)
+
+// Manager 管理 Web 模式下所有运行态实例、调度器、日志和通知。
+type Manager struct {
+	// Paths 指向 Web 模式共享的配置和统计持久化文件。
+	Paths config.Paths
+	// Stats 负责读取和写入 stats.json，计划列表也从这里聚合历史。
+	Stats *stats.Store
+
+	mu       sync.RWMutex
+	primary  *Item
+	auto     []*Item
+	temp     []*Item
+	logSeq   int64
+	logs     []model.LogEntry
+	eventSeq int64
+	events   []model.Event
+	location *time.Location
+}
+
+// Item 是一个运行计划或临时测试实例。
+type Item struct {
+	// Name 是运行态实例对应的规范化配置名。
+	Name string
+	// Config 是该实例启动时使用的配置快照。
+	Config model.Config
+	// Consumer 是实际执行下载和统计保存的任务实例。
+	Consumer *consumer.Consumer
+	// Cron 是等待调度计划使用的后台调度器。
+	Cron *cron.Cron
+	// EntryID 标识 Cron 内部的当前计划任务。
+	EntryID cron.EntryID
+	// Temp 标记该实例是临时测试，计划列表不会展示它。
+	Temp bool
+	// AutoStart 标记该实例是否来自 Web 服务启动时的自动运行配置。
+	AutoStart bool
+	// Resume 保存临时测试完成后需要恢复的原调度计划。
+	Resume *ResumeTarget
+}
+
+// ResumeTarget 保存临时测试结束后需要恢复的同名等待调度计划。
+type ResumeTarget struct {
+	// Name 是被临时测试暂停的计划名。
+	Name string
+	// Config 是恢复计划时使用的原配置快照。
+	Config model.Config
+	// AutoStart 表示恢复后应回到自启动实例列表还是主实例。
+	AutoStart bool
+}
+
+// New 创建运行态管理器。
+func New(paths config.Paths) *Manager {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		loc = time.Local
+	}
+	return &Manager{
+		Paths:    paths,
+		Stats:    stats.NewStore(paths.StatsFile),
+		location: loc,
+	}
+}
+
+// AddLog 写入日志缓冲，前端通过 HTTP 增量轮询。
+func (m *Manager) AddLog(configName, level, message, color string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logSeq++
+	entry := model.LogEntry{
+		Seq:       m.logSeq,
+		Timestamp: time.Now().Format(time.RFC3339),
+		Level:     firstNonEmpty(level, "info"),
+		Message:   stripANSI(message),
+		Color:     color,
+		Config:    configName,
+	}
+	m.logs = append(m.logs, entry)
+	if len(m.logs) > 500 {
+		m.logs = m.logs[len(m.logs)-500:]
+	}
+}
+
+// AddEvent 写入通知缓冲，替代旧 Socket.IO 的 invalid_url/history_update/error 推送。
+func (m *Manager) AddEvent(event model.Event) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventSeq++
+	event.Seq = m.eventSeq
+	if event.Type == "" {
+		event.Type = firstNonEmpty(event.EventType, "notification")
+	}
+	m.events = append(m.events, event)
+	if len(m.events) > 500 {
+		m.events = m.events[len(m.events)-500:]
+	}
+}
+
+// LogsSince 返回指定序号之后的日志。
+func (m *Manager) LogsSince(seq int64) ([]model.LogEntry, int64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]model.LogEntry, 0)
+	for _, entry := range m.logs {
+		if entry.Seq > seq {
+			result = append(result, entry)
+		}
+	}
+	return result, m.logSeq
+}
+
+// EventsSince 返回指定序号之后的通知。
+func (m *Manager) EventsSince(seq int64) ([]model.Event, int64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]model.Event, 0)
+	for _, event := range m.events {
+		if event.Seq > seq {
+			result = append(result, event)
+		}
+	}
+	return result, m.eventSeq
+}
+
+// LaunchAutoStartConfigs 启动所有标记为自启动的配置。
+func (m *Manager) LaunchAutoStartConfigs() bool {
+	names, err := storage.FindAutoStartConfigs(m.Paths.ConfigFile)
+	if err != nil || len(names) == 0 {
+		return false
+	}
+	startedNow := []string{}
+	scheduled := []string{}
+	for _, name := range names {
+		cfg, ok, err := storage.LoadConfigEntry(m.Paths.ConfigFile, name)
+		if err != nil || !ok {
+			continue
+		}
+		item, err := m.createItem(name, cfg, false, nil)
+		if err != nil {
+			m.AddEvent(errorEvent(err.Error()))
+			continue
+		}
+		item.AutoStart = true
+		if item.isScheduled() {
+			if err := m.startScheduler(item); err != nil {
+				m.AddEvent(errorEvent(err.Error()))
+				continue
+			}
+			scheduled = append(scheduled, name)
+		} else {
+			item.Consumer.StartAsync()
+			startedNow = append(startedNow, name)
+		}
+		m.mu.Lock()
+		m.auto = append(m.auto, item)
+		if m.primary == nil {
+			m.primary = item
+		}
+		m.mu.Unlock()
+	}
+	if len(startedNow) == 0 && len(scheduled) == 0 {
+		return false
+	}
+	parts := []string{}
+	state := model.StateScheduled
+	if len(startedNow) > 0 {
+		state = model.StateRunning
+		parts = append(parts, "立即执行: "+strings.Join(startedNow, ", "))
+	}
+	if len(scheduled) > 0 {
+		parts = append(parts, "等待调度: "+strings.Join(scheduled, ", "))
+	}
+	m.AddEvent(model.Event{
+		Type:    "status_update",
+		Title:   "状态更新：",
+		Variant: stateVariant(state),
+		Message: "已自动启动配置（" + strings.Join(parts, "；") + "）",
+	})
+	return true
+}
+
+// StartConsumer 启动手动配置；若配置带调度参数则只进入等待调度。
+func (m *Manager) StartConsumer(cfg model.Config) (model.StatusPayload, error) {
+	snapshot := m.snapshot()
+	if snapshot.hasActiveDownload {
+		return model.StatusPayload{}, errors.New("流量消耗器已在运行。")
+	}
+	// Web 定时任务启动后承载 goroutine 可能已经退出，但 cron 仍在后台。
+	// 手动启动新配置前必须停掉旧计划，避免用户看着已切配置，旧计划却偷偷下载。
+	if snapshot.hasActiveScheduler {
+		m.StopAll()
+	}
+	name := storage.NormalizeConfigName(firstNonEmpty(cfg.ConfigName, cfg.Name))
+	item, err := m.createItem(name, cfg, false, nil)
+	if err != nil {
+		return model.StatusPayload{}, err
+	}
+	if item.isScheduled() {
+		if err := m.startScheduler(item); err != nil {
+			return model.StatusPayload{}, err
+		}
+	} else {
+		item.Consumer.StartAsync()
+	}
+	m.mu.Lock()
+	m.primary = item
+	m.mu.Unlock()
+
+	state := model.StateRunning
+	message := fmt.Sprintf("流量消耗器已使用配置启动: %s", name)
+	if item.isScheduled() {
+		state = model.StateScheduled
+		message = fmt.Sprintf("配置 \"%s\" 已启动，当前等待调度执行。", name)
+	}
+	m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: stateVariant(state), Message: message, Config: name})
+	return model.StatusPayload{Running: true, State: state, Config: name, Message: message, ThreadStatus: map[int]string{}, URLUsageStats: []model.URLUsageStat{}}, nil
+}
+
+// StartTempTest 使用当前配置执行最多 100MB 的立即验证。
+func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
+	name := storage.NormalizeConfigName(firstNonEmpty(cfg.ConfigName, cfg.Name))
+	snapshot := m.snapshot()
+	if snapshot.hasActiveDownload {
+		return model.StatusPayload{}, errors.New("已有下载任务正在运行，请先停止后再发起临时测试。")
+	}
+	var resume *ResumeTarget
+	if len(snapshot.scheduled) > 0 {
+		if len(snapshot.scheduled) > 1 {
+			return model.StatusPayload{}, errors.New("当前存在多个等待中的计划，请先停掉其他计划后再发起临时测试。")
+		}
+		scheduled := snapshot.scheduled[0]
+		if scheduled.Name != name {
+			return model.StatusPayload{}, fmt.Errorf("当前等待中的计划是 \"%s\"，请先切换到同名配置或停止该计划。", scheduled.Name)
+		}
+		resume = &ResumeTarget{Name: name, Config: scheduled.Config, AutoStart: scheduled.AutoStart}
+		m.StopRuntimeConfig(name)
+	}
+
+	testCfg := cfg
+	testCfg.CronExpr = ""
+	testCfg.Interval = nil
+	testCfg.AutoStart = false
+	testCfg.Duration = nil
+	testCfg.Count = nil
+	testCfg.AutoRemoveFailedURL = false
+	limit := int64(100)
+	if testCfg.TrafficLimit != nil && *testCfg.TrafficLimit > 0 && *testCfg.TrafficLimit < limit {
+		limit = *testCfg.TrafficLimit
+	}
+	testCfg.TrafficLimit = &limit
+
+	item, err := m.createItem(name, testCfg, true, resume)
+	if err != nil {
+		return model.StatusPayload{}, err
+	}
+	done := item.Consumer.StartAsync()
+	m.mu.Lock()
+	m.temp = append(m.temp, item)
+	m.mu.Unlock()
+	go m.cleanupTempWhenDone(item, done)
+
+	message := fmt.Sprintf("已开始临时测试验证配置 \"%s\"，本次最多下载 %d MB。", name, limit)
+	m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "success", Message: message, Config: name})
+	return model.StatusPayload{Running: true, State: model.StateRunning, Config: name, Message: message, ThreadStatus: map[int]string{}, URLUsageStats: []model.URLUsageStat{}}, nil
+}
+
+// StopAll 停止所有下载与调度。
+func (m *Manager) StopAll() bool {
+	items := m.items()
+	m.mu.Lock()
+	m.primary = nil
+	m.auto = nil
+	m.temp = nil
+	m.mu.Unlock()
+	stopped := false
+	for _, item := range items {
+		if stopItem(item) {
+			stopped = true
+		}
+	}
+	if stopped {
+		m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "secondary", Message: "流量消耗器已停止。"})
+	}
+	return stopped
+}
+
+// StopRuntimeConfig 仅停止指定名称的计划或任务。
+func (m *Manager) StopRuntimeConfig(name string) bool {
+	name = storage.NormalizeConfigName(name)
+	var targets []*Item
+	m.mu.Lock()
+	if m.primary != nil && m.primary.Name == name {
+		targets = append(targets, m.primary)
+		m.primary = nil
+	}
+	m.auto, targets = removeNamed(m.auto, name, targets)
+	m.temp, targets = removeNamed(m.temp, name, targets)
+	if m.primary == nil && len(m.auto) > 0 {
+		m.primary = m.auto[0]
+	}
+	m.mu.Unlock()
+
+	stopped := false
+	for _, item := range targets {
+		if stopItem(item) {
+			stopped = true
+		}
+	}
+	if len(targets) > 0 || stopped {
+		m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "secondary", Message: fmt.Sprintf("计划 \"%s\" 已停止。", name), Config: name})
+	}
+	return len(targets) > 0 || stopped
+}
+
+// Status 返回当前状态面板数据。
+func (m *Manager) Status() model.StatusPayload {
+	snapshot := m.snapshot()
+	if snapshot.primary != nil && snapshot.primary.Consumer.IsActive() {
+		item := snapshot.primary
+		total, count, startedAt, _ := item.Consumer.Snapshot()
+		elapsed := time.Since(startedAt).Seconds()
+		speed := 0.0
+		if elapsed > 0 {
+			speed = float64(total) / elapsed
+		}
+		return model.StatusPayload{
+			TotalBytes:    stats.FormatBytes(float64(total)),
+			Speed:         stats.FormatBytes(speed) + "/s",
+			DownloadCount: count,
+			Running:       true,
+			State:         model.StateRunning,
+			Config:        item.Name,
+			ThreadCount:   item.Config.Threads,
+			ThreadStatus:  item.Consumer.URLMgr.ThreadSnapshot(item.Config.Threads),
+			URLUsageStats: buildURLUsageStats(item.Consumer.URLMgr.URLs(), item.Consumer.URLMgr.UsageSnapshot()),
+		}
+	}
+	state := model.StateStopped
+	if snapshot.hasActiveScheduler {
+		state = model.StateScheduled
+	}
+	return model.StatusPayload{
+		Running:       snapshot.hasActiveScheduler,
+		State:         state,
+		Config:        strings.Join(snapshot.configNames, ", "),
+		ThreadCount:   snapshot.threadCount,
+		ThreadStatus:  map[int]string{},
+		URLUsageStats: []model.URLUsageStat{},
+	}
+}
+
+// SchedulerStatus 返回调度和计划列表。
+func (m *Manager) SchedulerStatus() model.SchedulerPayload {
+	plans := m.PlanSummaries()
+	nextRun := ""
+	details := []string{}
+	for _, item := range m.items() {
+		if item.Cron == nil {
+			continue
+		}
+		itemNext := item.nextRun()
+		if itemNext != "" && (nextRun == "" || itemNext < nextRun) {
+			nextRun = itemNext
+		}
+		if item.Config.CronExpr != "" {
+			details = append(details, fmt.Sprintf("%s: Cron %s", item.Name, item.Config.CronExpr))
+		} else if item.Config.Interval != nil {
+			details = append(details, fmt.Sprintf("%s: Interval %d 分钟", item.Name, *item.Config.Interval))
+		}
+	}
+	return model.SchedulerPayload{NextRunTime: nextRun, JobDetails: strings.Join(details, " | "), Plans: plans}
+}
+
+// PlanSummaries 返回所有非临时运行计划。
+func (m *Manager) PlanSummaries() []model.PlanSummary {
+	historySummary, _ := m.Stats.SummaryByConfig()
+	plans := []model.PlanSummary{}
+	for _, item := range m.items() {
+		if item.Temp {
+			continue
+		}
+		history := historySummary[item.Name]
+		total, count, _, active := item.Consumer.Snapshot()
+		totalRaw := history.TotalBytesRaw + total
+		downloadCount := history.DownloadCount + count
+		plans = append(plans, model.PlanSummary{
+			Name:             item.Name,
+			Running:          active,
+			SchedulerRunning: item.Cron != nil,
+			NextRunTime:      item.nextRun(),
+			TotalBytes:       stats.FormatBytes(float64(totalRaw)),
+			TotalBytesRaw:    totalRaw,
+			DownloadCount:    downloadCount,
+			Threads:          item.Config.Threads,
+			URLCount:         len(item.Consumer.URLMgr.URLs()),
+			CronExpr:         item.Config.CronExpr,
+			Interval:         item.Config.Interval,
+			AutoStart:        item.Config.AutoStart,
+			URLStrategy:      item.Config.URLStrategy,
+		})
+	}
+	return plans
+}
+
+// PlanDetail 返回计划详情弹窗数据。
+func (m *Manager) PlanDetail(name string) (model.PlanDetailPayload, error) {
+	name = storage.NormalizeConfigName(name)
+	cfg, ok, err := storage.LoadConfigEntry(m.Paths.ConfigFile, name)
+	if err != nil {
+		return model.PlanDetailPayload{}, err
+	}
+	if !ok {
+		return model.PlanDetailPayload{}, errors.New("计划不存在或已被删除。")
+	}
+	cfg = cfg.Normalize(config.DefaultURLs, name, false)
+	var summary model.PlanSummary
+	for _, plan := range m.PlanSummaries() {
+		if plan.Name == name {
+			summary = plan
+			break
+		}
+	}
+	if summary.Name == "" {
+		historySummary, _ := m.Stats.SummaryByConfig()
+		summary = historySummary[name]
+		summary.Name = name
+		summary.TotalBytes = stats.FormatBytes(float64(summary.TotalBytesRaw))
+		summary.Threads = cfg.Threads
+		summary.CronExpr = cfg.CronExpr
+		summary.Interval = cfg.Interval
+	}
+	history, _ := m.Stats.HistoryForConfig(name, 50)
+	return model.PlanDetailPayload{Name: name, Config: cfg, Summary: summary, History: history}, nil
+}
+
+// SaveConfig 保存配置；若同名运行态存在，先停止旧计划。
+func (m *Manager) SaveConfig(name string, cfg model.Config) error {
+	name = storage.NormalizeConfigName(name)
+	m.StopRuntimeConfig(name)
+	cfg = cfg.Normalize(config.DefaultURLs, name, false)
+	return storage.SaveConfigEntry(m.Paths.ConfigFile, name, cfg)
+}
+
+// DeleteConfig 删除配置并同步停止同名运行态。
+func (m *Manager) DeleteConfig(name string) (bool, error) {
+	name = storage.NormalizeConfigName(name)
+	m.StopRuntimeConfig(name)
+	return storage.DeleteConfigEntry(m.Paths.ConfigFile, name)
+}
+
+func (m *Manager) createItem(name string, cfg model.Config, temp bool, resume *ResumeTarget) (*Item, error) {
+	cfg = cfg.Normalize(config.DefaultURLs, name, cfg.URLs == nil)
+	name = cfg.ConfigName
+	logger := func(level, message, color string) {
+		m.AddLog(name, level, message, color)
+	}
+	eventer := func(event model.Event) {
+		event.Config = name
+		m.AddEvent(event)
+	}
+	c := consumer.New(cfg, m.Paths, m.Stats, logger, eventer)
+	return &Item{Name: name, Config: cfg, Consumer: c, Temp: temp, Resume: resume, AutoStart: cfg.AutoStart}, nil
+}
+
+func (m *Manager) startScheduler(item *Item) error {
+	c := cron.New(cron.WithLocation(m.location), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
+	spec := item.Config.CronExpr
+	if spec == "" && item.Config.Interval != nil {
+		spec = fmt.Sprintf("@every %dm", *item.Config.Interval)
+	}
+	if spec == "" {
+		return nil
+	}
+	id, err := c.AddFunc(spec, func() {
+		item.Consumer.RunOnce(context.Background())
+	})
+	if err != nil {
+		return err
+	}
+	item.Cron = c
+	item.EntryID = id
+	c.Start()
+	return nil
+}
+
+func (m *Manager) cleanupTempWhenDone(item *Item, done <-chan struct{}) {
+	<-done
+	var resume *ResumeTarget
+	m.mu.Lock()
+	next := make([]*Item, 0, len(m.temp))
+	for _, candidate := range m.temp {
+		if candidate == item {
+			resume = candidate.Resume
+			continue
+		}
+		next = append(next, candidate)
+	}
+	m.temp = next
+	m.mu.Unlock()
+	if resume == nil {
+		return
+	}
+	restored, err := m.createItem(resume.Name, resume.Config, false, nil)
+	if err != nil {
+		m.AddEvent(errorEvent(err.Error()))
+		return
+	}
+	restored.AutoStart = resume.AutoStart
+	if err := m.startScheduler(restored); err != nil {
+		m.AddEvent(errorEvent(err.Error()))
+		return
+	}
+	m.mu.Lock()
+	if resume.AutoStart {
+		m.auto = append(m.auto, restored)
+		if m.primary == nil {
+			m.primary = restored
+		}
+	} else {
+		m.primary = restored
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) items() []*Item {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	items := []*Item{}
+	seen := map[*Item]bool{}
+	for _, item := range append(append([]*Item{m.primary}, m.auto...), m.temp...) {
+		if item == nil || seen[item] {
+			continue
+		}
+		seen[item] = true
+		items = append(items, item)
+	}
+	return items
+}
+
+func (m *Manager) snapshot() runtimeSnapshot {
+	items := m.items()
+	snapshot := runtimeSnapshot{records: items}
+	for _, item := range items {
+		if item.Consumer.IsActive() {
+			snapshot.active = append(snapshot.active, item)
+			snapshot.hasActiveDownload = true
+		}
+		if item.Cron != nil {
+			snapshot.scheduled = append(snapshot.scheduled, item)
+			snapshot.hasActiveScheduler = true
+		}
+		snapshot.threadCount += item.Config.Threads
+		snapshot.configNames = append(snapshot.configNames, item.Name)
+	}
+	if len(snapshot.active) > 0 {
+		snapshot.primary = snapshot.active[0]
+	} else if len(snapshot.scheduled) > 0 {
+		snapshot.primary = snapshot.scheduled[0]
+	} else if len(items) > 0 {
+		snapshot.primary = items[0]
+	}
+	return snapshot
+}
+
+type runtimeSnapshot struct {
+	records            []*Item
+	active             []*Item
+	scheduled          []*Item
+	primary            *Item
+	threadCount        int
+	configNames        []string
+	hasActiveDownload  bool
+	hasActiveScheduler bool
+}
+
+func (i *Item) isScheduled() bool {
+	return i.Config.CronExpr != "" || i.Config.Interval != nil && *i.Config.Interval > 0
+}
+
+func (i *Item) nextRun() string {
+	if i.Cron == nil {
+		return ""
+	}
+	entry := i.Cron.Entry(i.EntryID)
+	if entry.Next.IsZero() {
+		return ""
+	}
+	return entry.Next.Format(time.RFC3339)
+}
+
+func stopItem(item *Item) bool {
+	if item == nil {
+		return false
+	}
+	stopped := false
+	if item.Consumer.IsActive() {
+		stopped = true
+	}
+	item.Consumer.Stop()
+	if item.Cron != nil {
+		ctx := item.Cron.Stop()
+		select {
+		case <-ctx.Done():
+		case <-time.After(3 * time.Second):
+		}
+		item.Cron = nil
+		stopped = true
+	}
+	return stopped
+}
+
+func removeNamed(items []*Item, name string, targets []*Item) ([]*Item, []*Item) {
+	remaining := make([]*Item, 0, len(items))
+	for _, item := range items {
+		if item != nil && item.Name == name {
+			targets = append(targets, item)
+			continue
+		}
+		remaining = append(remaining, item)
+	}
+	return remaining, targets
+}
+
+func buildURLUsageStats(urls []string, usage map[string]int64) []model.URLUsageStat {
+	total := int64(0)
+	for _, count := range usage {
+		total += count
+	}
+	result := []model.URLUsageStat{}
+	if len(urls) > 0 {
+		for _, url := range urls {
+			count := usage[url]
+			result = append(result, model.URLUsageStat{URL: url, Count: count, Percentage: percent(count, total)})
+		}
+		return result
+	}
+	for url, count := range usage {
+		result = append(result, model.URLUsageStat{URL: url, Count: count, Percentage: percent(count, total)})
+	}
+	return result
+}
+
+func percent(count, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(count) / float64(total) * 100
+}
+
+func errorEvent(message string) model.Event {
+	return model.Event{Type: "error", Title: "操作失败：", Variant: "danger", Message: message}
+}
+
+func stateVariant(state model.RuntimeState) string {
+	switch state {
+	case model.StateScheduled:
+		return "info"
+	case model.StateRunning:
+		return "success"
+	default:
+		return "secondary"
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func stripANSI(text string) string {
+	replacer := strings.NewReplacer("\x1b[31m", "", "\x1b[32m", "", "\x1b[33m", "", "\x1b[34m", "", "\x1b[35m", "", "\x1b[36m", "", "\x1b[37m", "", "\x1b[0m", "")
+	return replacer.Replace(text)
+}
