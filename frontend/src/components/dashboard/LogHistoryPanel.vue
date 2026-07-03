@@ -1,0 +1,113 @@
+<script setup lang="ts">
+import { FileTextIcon, HistoryIcon } from '@lucide/vue'
+
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Switch } from '@/components/ui/switch'
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { LogEntry, PlanSummary } from '@/types'
+
+defineProps<{
+  formatDateTime: (value?: string) => string
+  logEnabled: boolean
+  logLevelClass: (level: string) => string
+  logs: LogEntry[]
+  plans: PlanSummary[]
+}>()
+
+defineEmits<{
+  clearLogs: []
+  'update:logEnabled': [value: boolean]
+}>()
+</script>
+
+<template>
+  <Card>
+    <Tabs default-value="logs">
+      <CardHeader class="border-b py-2">
+        <TabsList>
+          <TabsTrigger value="logs">实时日志</TabsTrigger>
+          <TabsTrigger value="history">调度历史</TabsTrigger>
+        </TabsList>
+      </CardHeader>
+
+      <CardContent class="p-0">
+        <TabsContent value="logs" class="m-0">
+          <div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-2">
+              <Switch
+                id="log-switch"
+                :checked="logEnabled"
+                @update:checked="$emit('update:logEnabled', Boolean($event))"
+              />
+              <Label for="log-switch">接收实时日志</Label>
+            </div>
+            <Button
+              id="clear-log-btn"
+              size="xs"
+              variant="ghost"
+              @click="$emit('clearLogs')"
+            >
+              清空
+            </Button>
+          </div>
+
+          <ScrollArea
+            id="log-container"
+            class="h-[200px] border-t bg-muted px-4 py-3 font-mono text-xs"
+          >
+            <div v-if="logs.length">
+              <div v-for="entry in logs" :key="entry.seq" class="mb-1 flex gap-3">
+                <span class="shrink-0 text-muted-foreground">[{{ new Date(entry.timestamp || Date.now()).toLocaleTimeString() }}]</span>
+                <span :class="logLevelClass(entry.level)">{{ entry.message }}</span>
+              </div>
+            </div>
+            <Empty v-else class="min-h-[176px] p-0">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <FileTextIcon />
+                </EmptyMedia>
+                <EmptyTitle>{{ logEnabled ? '暂无日志' : '日志已暂停' }}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="history" class="m-0">
+          <Table>
+            <TableHeader class="bg-muted">
+              <TableRow>
+                <TableHead>计划</TableHead>
+                <TableHead>下次执行</TableHead>
+                <TableHead>累计流量</TableHead>
+                <TableHead class="text-right">下载数</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableEmpty v-if="!plans.length" :colspan="4" class="py-0">
+                <Empty class="p-0">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <HistoryIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>暂无调度历史</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
+              </TableEmpty>
+              <TableRow v-for="plan in plans" :key="`history-${plan.name}`">
+                <TableCell>{{ plan.name }}</TableCell>
+                <TableCell>{{ formatDateTime(plan.next_run_time) }}</TableCell>
+                <TableCell>{{ plan.total_bytes }}</TableCell>
+                <TableCell class="text-right">{{ plan.download_count }}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </TabsContent>
+      </CardContent>
+    </Tabs>
+  </Card>
+</template>
