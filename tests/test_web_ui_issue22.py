@@ -134,13 +134,13 @@ class Issue22WebUiTests(unittest.TestCase):
         self.assertEqual(payload["state"], "running")
         self.assertIn("最多下载 100 MB", payload["message"])
 
-    def test_auto_start_help_icon_exists_in_template(self):
-        """启动自动运行旁边必须保留说明图标，避免再次误导用户。"""
+    def test_frontend_shell_loads_compiled_vue_bundle(self):
+        """首页模板应作为 Vue 控制台的稳定壳，而不是旧的 Bootstrap 页面。"""
         template = Path("templates/index.html").read_text(encoding="utf-8")
-        self.assertIn('aria-label="查看启动自动运行说明"', template)
-        self.assertIn('data-bs-toggle="tooltip"', template)
-        self.assertIn('bi bi-exclamation-circle', template)
-        self.assertIn('若未填写定时，则会立刻执行一次', template)
+        self.assertIn('<div id="app"></div>', template)
+        self.assertIn('/static/app/assets/app.css', template)
+        self.assertIn('/static/app/assets/app.js', template)
+        self.assertNotIn('bootstrap.min.css', template)
 
     def test_launch_auto_start_configs_runs_immediately_without_scheduler(self):
         """未填写定时但勾选自动运行时，程序启动后应立刻执行一次。"""

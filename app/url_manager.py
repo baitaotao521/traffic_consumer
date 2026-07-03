@@ -10,6 +10,18 @@ from typing import Callable, Dict, List, Optional, Set
 from colorama import Fore
 
 
+def format_error_detail(error: Optional[Exception]) -> str:
+    """提取稳定的错误描述，避免空异常让前端只能显示 unknown。"""
+    if error is None:
+        return "请求失败，但底层异常未返回详细信息。"
+
+    detail = str(error).strip()
+    if detail:
+        return detail
+
+    return error.__class__.__name__ or "请求失败，但底层异常未返回详细信息。"
+
+
 class UrlManager:
     """负责 URL 轮询、失效标记与统计的线程安全组件。"""
 
@@ -94,6 +106,7 @@ class UrlManager:
         """在重试耗尽后标记 URL 为失效，返回是否所有 URL 均失效。"""
         notify_callback = None
         payload = None
+        error_detail = format_error_detail(error)
 
         with self._thread_lock:
             if url in self._invalid_urls:
@@ -112,23 +125,30 @@ class UrlManager:
                 except ValueError:
                     pass
 
-        summary = f"链接 {url} 连续失败超过 {self.max_retries} 次，已标记为无效。"
-        if error:
-            summary += f" 错误信息: {error}"
+        summary = (
+            f"链接 {url} 连续失败超过 {self.max_retries} 次，已标记为无效。"
+            f" 错误信息: {error_detail}"
+        )
         self.logger(summary, Fore.RED)
 
         if self.invalid_url_callback:
             payload = {
+                "type": "download_failure",
+                "event_type": "invalid_url",
+                "level": "error",
+                "title": "下载失败：",
+                "variant": "danger",
                 "url": url,
                 "message": f"链接已连续失败 {self.max_retries} 次，已停止重试。",
                 "retries": self.max_retries,
+                "error": error_detail,
             }
-            if error:
-                payload["error"] = str(error)
             notify_callback = self.invalid_url_callback
 
         if all_invalid:
             self.logger("所有下载链接均已失效，任务即将停止。", Fore.RED)
+            if payload:
+                payload["all_invalid"] = True
 
         if notify_callback and payload:
             try:

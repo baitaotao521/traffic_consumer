@@ -56,6 +56,14 @@ COLOR_TO_CSS = {
     Fore.MAGENTA: "#d63384",
     Fore.WHITE: "#f8f9fa",
 }
+COLOR_TO_LEVEL = {
+    Fore.RED: "error",
+    Fore.YELLOW: "warning",
+    Fore.GREEN: "success",
+    Fore.CYAN: "info",
+    Fore.BLUE: "info",
+    Fore.MAGENTA: "info",
+}
 
 
 def strip_ansi(text: str) -> str:
@@ -178,7 +186,13 @@ def build_socket_callbacks(config_name):
         color_value = COLOR_TO_CSS.get(color, color)
         if not log_enabled:
             return
-        payload = {'message': plain_message, 'config': _config_name}
+        payload = {
+            'type': 'runtime_log',
+            'event_type': 'log_message',
+            'level': COLOR_TO_LEVEL.get(color, 'info'),
+            'message': plain_message,
+            'config': _config_name,
+        }
         if color_value:
             payload['color'] = color_value
         socketio.emit('log_message', payload)
@@ -190,6 +204,13 @@ def build_socket_callbacks(config_name):
 
     def invalid_url_emitter(payload, _config_name=config_name):
         event_payload = dict(payload or {})
+        event_payload.setdefault('type', 'download_failure')
+        event_payload.setdefault('event_type', 'invalid_url')
+        event_payload.setdefault('level', 'error')
+        event_payload.setdefault('title', '下载失败：')
+        event_payload.setdefault('variant', 'danger')
+        event_payload.setdefault('message', '下载链接连续失败，已停止重试。')
+        event_payload.setdefault('error', '请求失败，但底层异常未返回详细信息。')
         event_payload['config'] = _config_name
         socketio.emit('invalid_url', event_payload)
 

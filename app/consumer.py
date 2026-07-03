@@ -28,7 +28,7 @@ from app.config_manager import (
 )
 from app.limiter import RateLimiter
 from app.stats_manager import StatsManager, show_stats as show_stats_report
-from app.url_manager import UrlManager
+from app.url_manager import UrlManager, format_error_detail
 
 warnings.filterwarnings("ignore", category=UserWarning, module="apscheduler")
 init(autoreset=True)
@@ -77,6 +77,7 @@ class TrafficConsumer:
         self.rate_limiter = RateLimiter(int(self.limit_speed * 1024 * 1024)) if self.limit_speed > 0 else None
         self._traffic_limit_triggered = False
         self._count_limit_triggered = False
+        self._retry_log_keys = set()
 
         # 统计数据
         self.lock = threading.Lock()
@@ -190,8 +191,10 @@ class TrafficConsumer:
         return safe_logger
 
     def _reset_limit_flags(self):
+        """重置单次运行的限制与日志节流状态。"""
         self._traffic_limit_triggered = False
         self._count_limit_triggered = False
+        self._retry_log_keys.clear()
 
     def _sleep_with_stop(self, seconds):
         """可被停止信号打断的睡眠，避免停止计划后线程还傻等。"""
@@ -272,10 +275,7 @@ class TrafficConsumer:
                 if not self.active:
                     return False
 
-                self.logger(
-                    f"线程 {thread_id} 下载出错 (第{attempt}次尝试/{self.max_retries}): {exc}",
-                    Fore.RED
-                )
+                self._log_retry_failure(thread_id, url, attempt, exc)
 
                 if attempt >= self.max_retries:
                     all_invalid = self.url_manager.mark_url_invalid(url, exc)
@@ -291,6 +291,20 @@ class TrafficConsumer:
                 attempt += 1
 
         return False
+
+    def _log_retry_failure(self, thread_id, url, attempt, exc):
+        """按 URL 和重试次数合并失败日志，避免多线程坏链路刷屏。"""
+        error_detail = format_error_detail(exc)
+        retry_key = (url, attempt, error_detail)
+        with self.lock:
+            if retry_key in self._retry_log_keys:
+                return
+            self._retry_log_keys.add(retry_key)
+
+        self.logger(
+            f"线程 {thread_id} 下载出错 (第{attempt}次尝试/{self.max_retries}): {error_detail}",
+            Fore.RED
+        )
 
     def _handle_auto_remove_failed_url(self, url):
         """根据配置删除失效链接并持久化。"""
