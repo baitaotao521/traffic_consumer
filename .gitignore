@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+
+.DS_Store
+
+.codex/tmp/
+
+node_modules/
+dist/
+dist-ssr/
