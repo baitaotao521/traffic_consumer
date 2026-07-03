@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""兼容入口：重导出核心类与常量，统一从 app.py 启动。"""
+"""已废弃的 Python 兼容入口；新运行路径使用 Go 二进制。"""
 from main import main
 from app.cli import parse_args, run_cli
 from app.config import CONFIG_DIR, CONFIG_FILE, DEFAULT_CHUNK_SIZE, DEFAULT_URLS, STATS_FILE

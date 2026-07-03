@@ -78,6 +78,8 @@ go run .          # Web UI
 go run . --no-gui # CLI
 ```
 
+> Python 端已废弃：`main.py`、`web_ui.py`、`traffic_consumer.py`、`app/`、`requirements.txt` 与 `build_config.py` 仅作为历史兼容代码保留。新功能、修复、构建和发布都走 Go 后端与 Vue 前端。
+
 ---
 
 ## 🧩 运行方式
@@ -169,6 +171,12 @@ go run . \
 ├── frontend/               # Vue/Vite + shadcn-vue 前端源码
 ├── static/                 # 构建后的前端资源
 ├── templates/              # Web 页面壳
+├── main.py                 # 已废弃的 Python 入口，仅保留历史兼容
+├── web_ui.py               # 已废弃的 Python Web UI
+├── traffic_consumer.py     # 已废弃的 Python 兼容入口
+├── app/                    # 已废弃的 Python 后端实现
+├── requirements.txt        # 已废弃的 Python 依赖清单
+├── build_config.py         # 已废弃的 PyInstaller 构建脚本
 ├── go.mod                  # Go module
 ├── Dockerfile              # 镜像构建
 └── .github/workflows/      # CI/CD
@@ -183,6 +191,7 @@ go run . \
 3. 修改核心逻辑后运行 `go fmt ./...` 和 `go test ./...`。
 4. 本地构建执行 `go build -o traffic_consumer .`。
 5. GitHub Actions（`.github/workflows/build-simple.yml`）会在 push/tag 时自动校验前端与 Go 构建。
+6. 不再为 Python 端增加新功能或发布产物；旧 Python 文件只用于核对历史兼容行为。
 
 ---
 

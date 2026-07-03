@@ -1,54 +1,148 @@
 # Directory Structure
 
-> How backend code is organized in this project.
+> Backend organization and ownership boundaries for Traffic Consumer.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's backend directory structure here.
+The maintained backend is the Go module `github.com/baitaotao521/traffic_consumer`.
+`main.go` is the only maintained runtime entry point. It parses CLI flags first,
+runs CLI-only commands through `internal/cli`, and otherwise starts the Go HTTP
+server in `internal/httpapi`.
 
-Questions to answer:
-- How are modules/packages organized?
-- Where does business logic live?
-- Where are API endpoints defined?
-- How are utilities and helpers organized?
--->
-
-(To be filled by the team)
+Python files remain in the repository as deprecated legacy code. They explain
+some compatibility names and behavior, but they are not a target for new
+backend features.
 
 ---
 
 ## Directory Layout
 
-```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
+```text
+main.go                         Go entry point: Web UI by default, CLI with --no-gui or CLI-only flags
+internal/
+  cli/                          pflag parsing, config commands, stats display, scheduled CLI runs
+  config/                       default URLs, chunk size, and config/stat file paths
+  consumer/                     download loop, retries, rate limiting, failed-URL removal
+  httpapi/                      chi router, page shell, JSON API endpoints
+  model/                        shared config, status, plan, history, log, and event payload structs
+  runtime/                      Web-mode manager, running items, schedulers, logs, event buffers
+  stats/                        stats.json read/write, formatting, and per-config aggregation
+  storage/                      config.json read/write, config CRUD, URL removal helpers
+  urlmanager/                   URL selection, thread assignment, invalid URL state, usage stats
+frontend/                       Vue/Vite dashboard source
+static/app/                     compiled dashboard bundle served by Go
+static/js, static/css           old static assets kept for compatibility with template replacement
+templates/index.html            Web page shell loaded by internal/httpapi
+main.py, web_ui.py, app/        deprecated Python backend
+traffic_consumer.py             deprecated Python compatibility entry point
+build_config.py                 deprecated PyInstaller build helper
+requirements.txt                deprecated Python dependency set
 ```
 
 ---
 
 ## Module Organization
 
-<!-- How should new features/modules be organized? -->
+Keep transport, runtime orchestration, persistence, and business execution in
+separate Go packages.
 
-(To be filled by the team)
+- `main.go` wires the process together and should stay thin. It calls
+  `cli.Parse`, chooses CLI/Web mode, constructs `runtime.New`, then serves
+  `httpapi.New(...).Router()`.
+- `internal/httpapi` owns HTTP route registration, request decoding, status
+  codes, and response JSON. It delegates work to `runtime.Manager` and
+  `storage`.
+- `internal/runtime` owns Web-mode state such as active downloads, schedulers,
+  temporary tests, auto-start instances, logs, and events. It should not parse
+  HTTP requests.
+- `internal/consumer` owns download execution, retries, rate limiting, stats
+  writeback, and failed URL removal. It receives callbacks for logs/events
+  rather than importing HTTP code.
+- `internal/storage` and `internal/stats` are the only packages that should
+  write `config.json` and `stats.json` directly.
+- `internal/model` is the shared API/storage contract. Add fields here when the
+  same payload must cross storage, HTTP, runtime, and frontend boundaries.
+
+Example from `main.go`:
+
+```go
+args, _, err := cli.Parse(os.Args[1:])
+if args.IsCLIMode() {
+    if err := cli.Run(args, paths); err != nil {
+        fmt.Fprintln(os.Stderr, err)
+        os.Exit(1)
+    }
+    return
+}
+manager := appruntime.New(paths)
+server := httpapi.New(manager, baseDir)
+```
+
+Example from `internal/httpapi/server.go`:
+
+```go
+r.Route("/api", func(r chi.Router) {
+    r.Get("/configs", s.getConfigs)
+    r.Post("/runtime/start", s.startConsumer)
+    r.Get("/runtime/status", s.status)
+})
+```
+
+---
+
+## Deprecated Python Boundary
+
+Do not place new backend logic in:
+
+- `main.py`
+- `web_ui.py`
+- `traffic_consumer.py`
+- `app/**`
+- `build_config.py`
+- `requirements.txt`
+
+Those files are deprecated. Read them only when confirming a legacy field or
+behavior that the Go implementation must keep compatible, such as old
+`request_headers` formats or the `stats.json` time strings preserved in
+`internal/model/model.go`.
+
+When a compatibility behavior is preserved in Go, document it next to the Go
+implementation. Existing examples:
+
+```go
+// MarshalJSON keeps the Python Web UI object format for saved configs.
+func (h HeaderMap) MarshalJSON() ([]byte, error)
+
+// ReadJSON treats missing or corrupt JSON as empty, matching the Python path.
+func ReadJSON(path string, target any) error
+```
 
 ---
 
 ## Naming Conventions
 
-<!-- File and folder naming rules -->
-
-(To be filled by the team)
+- Go files and packages use lowercase package names and conventional Go file
+  names: `server.go`, `runtime.go`, `storage.go`, `consumer.go`.
+- HTTP handler methods on `Server` use lower camel case (`saveConfig`,
+  `startConsumer`, `previewCron`) and stay close to route registration.
+- Runtime manager methods use business verbs (`StartConsumer`,
+  `StartTempTest`, `StopRuntimeConfig`, `LaunchAutoStartConfigs`).
+- JSON struct fields in `internal/model` keep snake_case tags because persisted
+  config/stat files and frontend payloads already use that contract.
+- Tests live next to the package under test as `*_test.go` and use `t.TempDir`
+  for file-backed storage.
 
 ---
 
-## Examples
+## Examples To Follow
 
-<!-- Link to well-organized modules as examples -->
-
-(To be filled by the team)
+- `internal/model/model.go` centralizes cross-layer payload structs and documents
+  fields with business meaning.
+- `internal/storage/storage_test.go` verifies config CRUD, legacy single-URL
+  normalization, header array compatibility, and corrupt JSON tolerance.
+- `internal/consumer/consumer_test.go` verifies download behavior with
+  `httptest.NewServer` instead of real network dependencies.
+- `internal/httpapi/server_test.go` uses `httptest` and a temp config directory
+  to exercise HTTP handlers without starting a real server.

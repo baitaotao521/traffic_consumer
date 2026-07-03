@@ -1,3 +1,5 @@
+# Deprecated legacy Python backend dependencies.
+# New development and releases use the Go backend plus the Vue/Vite frontend.
 requests==2.31.0
 tqdm==4.66.1
 colorama==0.4.6

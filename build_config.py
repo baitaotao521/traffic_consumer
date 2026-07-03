@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-PyInstaller构建配置脚本
-用于自动化构建Windows和Linux可执行文件
+已废弃的 PyInstaller 构建配置脚本。
+
+当前发布路径是 Go 单文件可执行程序与 Docker 镜像；本脚本只保留给历史
+构建记录，不再用于新版本发布。
 """
 
 import os
@@ -62,7 +64,8 @@ def build_executable(script_name, output_name=None):
         return False
 
 def main():
-    """主函数"""
+    """保留旧构建入口兼容；新发布不再走 PyInstaller。"""
+    print("警告: Python/PyInstaller 构建路径已废弃，请使用 Go 构建流程。")
     print("开始构建可执行文件...")
     
     # 检查依赖

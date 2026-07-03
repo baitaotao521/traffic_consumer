@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""已废弃的 Python Web UI；主 Web 服务已迁移到 Go HTTP API。"""
+
 import threading
 import time
 import datetime

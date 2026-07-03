@@ -1,15 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""统一启动入口，支持 CLI 与 Web UI。"""
+"""已废弃的 Python 启动入口；主运行路径已迁移到 Go。"""
 
 import sys
 
 from app.cli import parse_args, run_cli
 
 
+PYTHON_DEPRECATION_NOTICE = (
+    "警告: Python 端已废弃，请使用 Go 入口：go run . 或 ./traffic_consumer。"
+)
+
+
 def main():
-    """根据参数选择 CLI 或 Web UI 启动方式"""
+    """保留旧入口兼容；新功能和发布不再走 Python。"""
+    print(PYTHON_DEPRECATION_NOTICE, file=sys.stderr)
     args = parse_args()
 
     # 命令行模式包含配置/统计相关命令与 --no-gui
