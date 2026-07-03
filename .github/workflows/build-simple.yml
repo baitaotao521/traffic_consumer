@@ -1,97 +1,194 @@
-name: Build, Release and Push Docker Image
+name: Build, Test, Release and Push Docker Image
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GO_VERSION: '1.26.x'
+  NODE_VERSION: '22'
+  DOCKER_IMAGE: baitaotao521/traffic_consumer
+
 jobs:
-  build-executables:
-    name: Build Executable for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  quality:
+    name: Go Test
+    runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
 
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-    - name: Build executable
-      run: |
-        $separator = if ("${{ runner.os }}" -eq "Windows") {";"} else {":"}
-        $addData = "--add-data `"templates${separator}templates`""
-        $pyinstaller_command = "python -m PyInstaller --onefile --clean --noconfirm --name traffic_consumer_${{ runner.os }} --hidden-import=engineio.async_drivers.threading ${addData} traffic_consumer.py"
-        if ("${{ runner.os }}" -eq "Windows") {
-          $pyinstaller_command += " --hidden-import=win32timezone"
-        }
-        Invoke-Expression $pyinstaller_command
-      shell: pwsh
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
 
-    - name: Upload executable artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: traffic_consumer_${{ runner.os }}
-        path: dist/traffic_consumer_${{ runner.os }}${{ runner.os == 'Windows' && '.exe' || '' }}
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
+      - name: Verify formatting
+        run: |
+          gofmt -w .
+          git diff --exit-code
+
+      - name: Run unit tests
+        run: go test ./...
+
+  build-executables:
+    name: Build Executable for ${{ matrix.platform_label }}
+    needs: quality
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform_label: Linux
+            goos: linux
+            goarch: amd64
+            binary_name: traffic_consumer_Linux
+            binary_suffix: ''
+          - platform_label: Windows
+            goos: windows
+            goarch: amd64
+            binary_name: traffic_consumer_Windows
+            binary_suffix: '.exe'
+          - platform_label: macOS
+            goos: darwin
+            goarch: arm64
+            binary_name: traffic_consumer_macOS
+            binary_suffix: ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build executable
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o "dist/${{ matrix.binary_name }}${{ matrix.binary_suffix }}" .
+
+      - name: Smoke test executable
+        if: matrix.goos == 'linux'
+        run: ./dist/${{ matrix.binary_name }} --help
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: traffic_consumer_${{ matrix.platform_label }}
+          path: dist/${{ matrix.binary_name }}${{ matrix.binary_suffix }}
+          if-no-files-found: error
+          retention-days: 14
 
   build-and-push-docker:
     name: Build and Push Docker Image
+    needs: quality
     runs-on: ubuntu-latest
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+
+      - name: Check Docker Hub credentials
+        id: docker-creds
+        shell: bash
+        run: |
+          if [[ -n "${DOCKER_USERNAME}" && -n "${DOCKER_PASSWORD}" ]]; then
+            echo "can_push=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "can_push=false" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        if: github.event_name != 'pull_request' && steps.docker-creds.outputs.can_push == 'true'
+        uses: docker/login-action@v4
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v5
+      - name: Build and optionally push
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: baitaotao521/traffic_consumer:latest,baitaotao521/traffic_consumer:${{ github.ref_name }}
+          push: ${{ github.event_name != 'pull_request' && steps.docker-creds.outputs.can_push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   create-release:
+    name: Create GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-executables, build-and-push-docker]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
 
-    - name: List downloaded files
-      run: ls -R artifacts
+      - name: List downloaded files
+        run: find artifacts -maxdepth 3 -type f -print
 
-    - name: Create release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          artifacts/traffic_consumer_Linux/traffic_consumer_Linux
-          artifacts/traffic_consumer_Windows/traffic_consumer_Windows.exe
-          artifacts/traffic_consumer_macOS/traffic_consumer_macOS
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            artifacts/traffic_consumer_Linux/traffic_consumer_Linux
+            artifacts/traffic_consumer_Windows/traffic_consumer_Windows.exe
+            artifacts/traffic_consumer_macOS/traffic_consumer_macOS
+          generate_release_notes: true
