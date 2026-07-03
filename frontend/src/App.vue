@@ -33,6 +33,7 @@ const hasScheduler = computed(() => {
       :is-stopped="isStopped"
       :status-label="dashboard.statusLabel.value"
       :status-variant="dashboard.statusVariant.value"
+      @create-config="dashboard.openCreateConfig"
       @delete-config="dashboard.requestDeleteSelectedConfig"
       @open-editor="dashboard.openEditor"
       @start="dashboard.runAction(dashboard.startSelected)"

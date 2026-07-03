@@ -409,7 +409,14 @@ export function useDashboard() {
     await pollScheduler()
   }
 
+  function openCreateConfig() {
+    // 新建配置始终从空白表单开始，避免把当前选中配置误保存成副本。
+    resetEditor()
+    editorOpen.value = true
+  }
+
   function openEditor() {
+    // 编辑配置沿用当前选中配置；没有配置时仍提供空白表单作为兜底入口。
     if (selectedConfigName.value && selectedConfigDetail.value) {
       formFromConfig(selectedConfigName.value, selectedConfigDetail.value)
     } else {
@@ -572,6 +579,7 @@ export function useDashboard() {
     logEnabled,
     logLevelClass,
     logs,
+    openCreateConfig,
     openEditor,
     openPlanDetail,
     planDialogOpen,

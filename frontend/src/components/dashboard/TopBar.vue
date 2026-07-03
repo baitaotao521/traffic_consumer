@@ -3,6 +3,7 @@ import {
   BoltIcon,
   CalendarClockIcon,
   PlayIcon,
+  PlusIcon,
   Settings2Icon,
   SquareIcon,
   Trash2Icon,
@@ -30,6 +31,7 @@ defineProps<{
 }>()
 
 defineEmits<{
+  createConfig: []
   deleteConfig: []
   openEditor: []
   start: []
@@ -96,9 +98,13 @@ defineEmits<{
           <CalendarClockIcon />
           停止调度
         </Button>
-        <Button variant="ghost" @click="$emit('openEditor')">
+        <Button id="create-config-btn" variant="outline" @click="$emit('createConfig')">
+          <PlusIcon />
+          新建配置
+        </Button>
+        <Button id="edit-config-btn" variant="ghost" @click="$emit('openEditor')">
           <Settings2Icon />
-          配置
+          编辑配置
         </Button>
         <Button id="delete-config-btn" variant="destructive" @click="$emit('deleteConfig')">
           <Trash2Icon />
