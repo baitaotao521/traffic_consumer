@@ -28,6 +28,7 @@ primary implementation.
 | [Error Handling](./error-handling.md) | Go error propagation, HTTP response shape, CLI exits, and cancellation | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Required checks, testing expectations, comments, and forbidden legacy work | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | CLI/Web log callbacks, levels, event buffers, and sensitive data rules | Filled |
+| [Web API Contracts](./web-api-contracts.md) | Huma Web API routes, OpenAPI SDK generation, Vue Query interaction model | Filled |
 
 ---
 
@@ -41,6 +42,8 @@ primary implementation.
   `config.json`, `stats.json`, config normalization, or compatibility fields.
 - Read [Error Handling](./error-handling.md) before changing API handlers, CLI
   commands, scheduler/runtime behavior, retries, or storage failures.
+- Read [Web API Contracts](./web-api-contracts.md) before changing Web dashboard
+  routes, OpenAPI schema, generated SDK usage, or frontend API interaction.
 - Read [Logging Guidelines](./logging-guidelines.md) before changing download
   logs, Web runtime events, status messages, or notification payloads.
 - Read [Quality Guidelines](./quality-guidelines.md) before committing any
@@ -51,6 +54,8 @@ primary implementation.
 - Run `gofmt -w .` after Go edits and make sure `git diff` contains only
   intentional formatting changes.
 - Run `go test ./...` for backend changes.
+- Run `npm --prefix frontend run api:generate` when Web API signatures or
+  payloads change.
 - Run `npm --prefix frontend run build` when Go API changes affect the dashboard
   contract or when frontend/static assets are touched.
 - Keep Python tests only as legacy compatibility checks. They must not become

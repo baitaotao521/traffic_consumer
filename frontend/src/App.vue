@@ -55,7 +55,7 @@ const hasScheduler = computed(() => {
           <SpeedPanel
             :labels="dashboard.speedLabels.value"
             :values="dashboard.speedValues.value"
-            @refresh="dashboard.runAction(dashboard.pollStatus)"
+            @refresh="dashboard.runAction(dashboard.refreshDashboard)"
           />
           <ThreadPanel :thread-counts="dashboard.threadCounts.value" :thread-rows="dashboard.threadRows.value" />
         </div>

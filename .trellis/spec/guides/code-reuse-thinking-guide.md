@@ -81,6 +81,21 @@ if (isThreadEvent(ev)) {
 **Rule**: If the same untyped payload field is read in 2+ places, create a
 shared type guard / normalizer / projection before adding a third reader.
 
+### Pattern 5: Hand-Managed Third-Party Widget Lifecycles
+
+**Bad**: Rebuilding an imperative third-party widget (chart, editor, viewer) in
+local component code every time polled data changes.
+
+This usually starts as "just a tiny wrapper", then turns into manual instance
+creation, destroy timing, update modes, and visual flicker bugs.
+
+**Good**: Use the ecosystem wrapper that already owns the widget lifecycle and
+reactive update contract, then pass stable data/options into it.
+
+**Rule**: Before writing `new SomeLibrary(...)` inside a Vue component, check
+whether the same stack already has a maintained wrapper. For polling dashboards,
+prefer the wrapper unless there is a concrete missing capability.
+
 ---
 
 ## When to Abstract

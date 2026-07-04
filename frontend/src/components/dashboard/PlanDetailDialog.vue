@@ -6,11 +6,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { HistoryRecord, PlanDetailPayload } from '@/types'
+import type { HistoryRecord, PlanDetailView } from '@/types'
 
 defineProps<{
   formatDateTime: (value?: string) => string
-  planDetail: PlanDetailPayload | null
+  planDetail: PlanDetailView | null
 }>()
 
 const open = defineModel<boolean>('open', { required: true })

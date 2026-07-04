@@ -1,66 +1,51 @@
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useMutation } from '@tanstack/vue-query'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
+import { apiClient, ApiError } from '@/api/client'
 import {
-  deleteConfig,
-  getConfig,
-  getEvents,
-  getLogs,
-  getPlanDetail,
-  getScheduler,
-  getStatus,
-  listConfigs,
-  previewCron,
-  saveConfig,
-  startRuntime,
-  startTempTest,
-  stopPlan,
-  stopRuntime,
-  stopScheduler,
-} from '@/api'
-import type {
-  BadgeVariant,
-  ConfigForm,
-  ConfigPayload,
-  PlanDetailPayload,
-  PlanSummary,
-  RuntimeEvent,
-  SchedulerPayload,
-  StatusPayload,
-  ThreadCounts,
-  ThreadRow,
-} from '@/types'
-
-const emptyStatus: StatusPayload = {
-  running: false,
-  state: 'stopped',
-  total_bytes: '0 B',
-  speed: '0 B/s',
-  download_count: 0,
-  thread_count: 0,
-  thread_status: {},
-  url_usage_stats: [],
-}
-
-const emptyScheduler: SchedulerPayload = {
-  next_run_time: '',
-  job_details: '',
-  plans: [],
-}
+  useActivityQuery,
+  useConfigCommandMutations,
+  useDashboardCache,
+  useDashboardQuery,
+  useRuntimeCommandMutations,
+} from '@/api/queries'
+import {
+  applyConfigToForm,
+  configFromForm,
+  configNames,
+  configWithName,
+  currentConfigName,
+  emptyDashboard,
+  formatDateTime,
+  formatPlanSchedule,
+  logLevelClass,
+  normalizeDashboard,
+  normalizePlanDetail,
+  parseSpeed,
+  planState,
+  projectActivityEvent,
+  statusLabel,
+  statusState,
+  statusVariant,
+  threadCounts as makeThreadCounts,
+  threadRows as makeThreadRows,
+} from '@/domain/dashboard'
+import type { ConfigForm, ConfigPayload, PlanDetailView, PlanSummary } from '@/types'
 
 export function useDashboard() {
-  const configs = ref<string[]>([])
+  const dashboardCache = useDashboardCache()
+  const dashboardQuery = useDashboardQuery()
+
   const selectedConfigName = ref('')
   const selectedConfigDetail = ref<ConfigPayload | null>(null)
-  const status = ref<StatusPayload>(emptyStatus)
-  const scheduler = ref<SchedulerPayload>(emptyScheduler)
   const logs = ref<Array<{ seq: number; timestamp: string; level: string; message: string }>>([])
   const logEnabled = ref(false)
   const logCursor = ref(0)
   const eventCursor = ref(0)
   const editorOpen = ref(false)
   const planDialogOpen = ref(false)
-  const selectedPlanDetail = ref<PlanDetailPayload | null>(null)
+  const selectedPlanDetail = ref<PlanDetailView | null>(null)
   const speedSamples = ref<{ label: string; value: number }[]>([])
   const cronPreview = ref<string[]>([])
   const confirmDialogOpen = ref(false)
@@ -74,66 +59,44 @@ export function useDashboard() {
   const form = reactive<ConfigForm>({
     name: '',
     urls: '',
-    threads: '',
+    threads: undefined,
     url_strategy: 'random',
-    limit_speed: '',
-    traffic_limit: '',
-    duration: '',
-    count: '',
+    limit_speed: undefined,
+    traffic_limit: undefined,
+    duration: undefined,
+    count: undefined,
     cron_expr: '',
-    interval: '',
+    interval: undefined,
     auto_remove_failed_url: false,
     auto_start: false,
     user_agent: '',
     request_headers: '',
-    url_switch_interval: '',
-    thread_start_delay: '',
+    url_switch_interval: undefined,
+    thread_start_delay: undefined,
   })
 
-  const statusLabel = computed(() => {
-    if (status.value.state === 'running') return '运行中'
-    if (status.value.state === 'scheduled') return '等待调度'
-    return '已停止'
-  })
-
-  const statusVariant = computed<BadgeVariant>(() => {
-    if (status.value.state === 'running') return 'default'
-    if (status.value.state === 'scheduled') return 'secondary'
-    return 'outline'
-  })
-
-  const currentConfig = computed(() => status.value.config || selectedConfigName.value || '未配置')
-  const plans = computed(() => scheduler.value.plans || [])
+  const dashboard = computed(() => normalizeDashboard(dashboardQuery.data.value?.dashboard || emptyDashboard))
+  const configs = computed(() => configNames(dashboard.value))
+  const status = computed(() => dashboard.value.status)
+  const scheduler = computed(() => dashboard.value.scheduler)
+  const plans = computed(() => dashboard.value.plans || scheduler.value.plans || [])
   const urlStats = computed(() => status.value.url_usage_stats || [])
-
-  const threadRows = computed<ThreadRow[]>(() => {
-    const map = status.value.thread_status || {}
-    const total = Number(status.value.thread_count || Object.keys(map).length || 0)
-    return Array.from({ length: total }, (_, index) => {
-      const id = index + 1
-      const url = map[String(id)] || '等待分配'
-      const failed = url.includes('已失效') || url.includes('无可用')
-      const active = !failed && url !== '等待分配' && url !== '等待中...'
-      return {
-        id,
-        url,
-        state: failed ? 'error' : active ? 'active' : 'idle',
-        label: failed ? (url.includes('无可用') ? '耗尽' : '失效') : active ? '运行中' : '待命',
-      }
-    })
-  })
-
-  const threadCounts = computed<ThreadCounts>(() => {
-    const active = threadRows.value.filter((row) => row.state === 'active').length
-    const errored = threadRows.value.filter((row) => row.state === 'error').length
-    const idle = Math.max(threadRows.value.length - active - errored, 0)
-    return { total: threadRows.value.length, active, idle, errored }
-  })
-
+  const currentConfig = computed(() => currentConfigName(status.value, selectedConfigName.value))
+  const statusLabelValue = computed(() => statusLabel(status.value))
+  const statusVariantValue = computed(() => statusVariant(status.value))
+  const threadRows = computed(() => makeThreadRows(status.value))
+  const threadCounts = computed(() => makeThreadCounts(threadRows.value))
   const speedValues = computed(() => speedSamples.value.map((sample) => sample.value))
   const speedLabels = computed(() => speedSamples.value.map((sample) => sample.label))
   const urlChartValues = computed(() => urlStats.value.map((item) => item.count))
   const urlChartLabels = computed(() => urlStats.value.map((item, index) => item.url || `链接 ${index + 1}`))
+
+  const activityQuery = useActivityQuery({ afterLog: logCursor, afterEvent: eventCursor })
+  const configMutations = useConfigCommandMutations()
+  const runtimeMutations = useRuntimeCommandMutations()
+  const cronPreviewMutation = useMutation({
+    mutationFn: (expression: string) => apiClient.previewCron(expression),
+  })
 
   function pushAlert(message: string, title = '状态更新', variant: 'default' | 'destructive' = 'default', detail?: string) {
     const now = Date.now()
@@ -158,6 +121,20 @@ export function useDashboard() {
       return
     }
     toast(message, { description, duration: 5000 })
+  }
+
+  function pushError(error: unknown, title = '操作失败') {
+    if (error instanceof ApiError) {
+      pushAlert(error.message, title, 'destructive')
+      return
+    }
+    pushAlert(error instanceof Error ? error.message : '请求失败', title, 'destructive')
+  }
+
+  function pushCommandMessage(response: { message?: string }) {
+    if (response.message) {
+      pushAlert(response.message)
+    }
   }
 
   function openConfirmation(options: {
@@ -192,181 +169,25 @@ export function useDashboard() {
     logs.value = []
   }
 
-  function parseInteger(value: string): number | null {
-    if (!value.trim()) return null
-    const parsed = Number.parseInt(value, 10)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-
-  function parseFloatOrNull(value: string): number | null {
-    if (!value.trim()) return null
-    const parsed = Number.parseFloat(value)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-
-  function normalizeHeaders(value: string): Record<string, string> | null {
-    const result: Record<string, string> = {}
-    value.split(/\r?\n/).forEach((line) => {
-      const index = line.indexOf(':')
-      if (index <= 0) return
-      const name = line.slice(0, index).trim()
-      const headerValue = line.slice(index + 1).trim()
-      if (name && headerValue) result[name] = headerValue
-    })
-    return Object.keys(result).length ? result : null
-  }
-
-  function headersToText(headers: ConfigPayload['request_headers']): string {
-    if (!headers) return ''
-    return Object.entries(headers)
-      .map(([name, value]) => `${name}: ${value}`)
-      .join('\n')
-  }
-
-  function formFromConfig(name = '', config: ConfigPayload = { urls: [] }) {
-    form.name = name
-    form.urls = Array.isArray(config.urls) ? config.urls.join('\n') : ''
-    form.threads = config.threads ? String(config.threads) : ''
-    form.url_strategy = config.url_strategy || 'random'
-    form.limit_speed = config.limit_speed ? String(config.limit_speed) : ''
-    form.traffic_limit = config.traffic_limit ? String(config.traffic_limit) : ''
-    form.duration = config.duration ? String(config.duration) : ''
-    form.count = config.count ? String(config.count) : ''
-    form.cron_expr = config.cron_expr || ''
-    form.interval = config.interval ? String(config.interval) : ''
-    form.auto_remove_failed_url = Boolean(config.auto_remove_failed_url)
-    form.auto_start = Boolean(config.auto_start)
-    form.user_agent = config.user_agent || ''
-    form.request_headers = headersToText(config.request_headers)
-    form.url_switch_interval = config.url_switch_interval ? String(config.url_switch_interval) : ''
-    form.thread_start_delay = config.thread_start_delay ? String(config.thread_start_delay) : ''
-  }
-
-  function configFromForm(): ConfigPayload {
-    const name = form.name.trim()
-    return {
-      name,
-      config_name: name,
-      urls: form.urls.split(/\r?\n/).map((url) => url.trim()).filter(Boolean),
-      url_strategy: form.url_strategy || 'random',
-      threads: parseInteger(form.threads),
-      limit_speed: parseFloatOrNull(form.limit_speed),
-      traffic_limit: parseInteger(form.traffic_limit),
-      duration: parseInteger(form.duration),
-      count: parseInteger(form.count),
-      cron_expr: form.cron_expr.trim() || null,
-      interval: parseInteger(form.interval),
-      auto_remove_failed_url: form.auto_remove_failed_url,
-      auto_start: form.auto_start,
-      user_agent: form.user_agent.trim() || null,
-      request_headers: normalizeHeaders(form.request_headers),
-      url_switch_interval: parseFloatOrNull(form.url_switch_interval),
-      thread_start_delay: parseFloatOrNull(form.thread_start_delay),
-    }
-  }
-
-  function parseSpeed(value?: string): number {
-    if (!value) return 0
-    const match = value.match(/(\d+(?:\.\d+)?)\s*MB\/s/i)
-    return match ? Number.parseFloat(match[1]) : 0
-  }
-
-  function applyStatus(nextStatus: StatusPayload) {
-    status.value = {
-      ...emptyStatus,
-      ...nextStatus,
-      thread_status: nextStatus.thread_status || {},
-      url_usage_stats: nextStatus.url_usage_stats || [],
-    }
-    if (nextStatus.message) {
-      pushAlert(nextStatus.message)
-    }
-    speedSamples.value.push({ label: new Date().toLocaleTimeString(), value: parseSpeed(nextStatus.speed) })
-    speedSamples.value = speedSamples.value.slice(-30)
-  }
-
-  async function refreshConfigs() {
-    const data = await listConfigs()
-    configs.value = data.configs || []
-    if (!configs.value.length) {
-      selectedConfigName.value = ''
-      selectedConfigDetail.value = null
-      formFromConfig()
-      return
-    }
-    if (!selectedConfigName.value || !configs.value.includes(selectedConfigName.value)) {
-      selectedConfigName.value = configs.value[0]
-    }
-    await loadConfigDetail(selectedConfigName.value)
+  async function refreshDashboard() {
+    await dashboardQuery.refetch()
   }
 
   async function loadConfigDetail(name: string) {
-    if (!name) return
-    const data = await getConfig(name)
-    selectedConfigName.value = data.name
-    selectedConfigDetail.value = { ...data.config, name: data.name, config_name: data.name }
-  }
-
-  async function pollStatus() {
-    try {
-      applyStatus(await getStatus())
-    } catch (error) {
-      pushAlert((error as Error).message, '操作失败', 'destructive')
-    }
-  }
-
-  async function pollScheduler() {
-    try {
-      scheduler.value = { ...emptyScheduler, ...(await getScheduler()) }
-    } catch (error) {
-      pushAlert((error as Error).message, '操作失败', 'destructive')
-    }
-  }
-
-  async function pollLogs() {
-    if (!logEnabled.value) return
-    try {
-      const data = await getLogs(logCursor.value)
-      logCursor.value = Number(data.latest || logCursor.value)
-      logs.value = [...logs.value, ...(data.logs || [])].slice(-200)
-    } catch (error) {
-      pushAlert((error as Error).message, '日志错误', 'destructive')
-    }
-  }
-
-  async function pollEvents() {
-    try {
-      const data = await getEvents(eventCursor.value)
-      eventCursor.value = Number(data.latest || eventCursor.value)
-      for (const event of data.events || []) {
-        await handleRuntimeEvent(event)
-      }
-    } catch (error) {
-      pushAlert((error as Error).message, '操作失败', 'destructive')
-    }
-  }
-
-  async function handleRuntimeEvent(event: RuntimeEvent) {
-    if (event.type === 'history_update') {
-      await pollScheduler()
-      await pollStatus()
+    if (!name) {
+      selectedConfigDetail.value = null
       return
     }
-    if (['status_update', 'error', 'download_failure'].includes(event.type) || event.event_type === 'invalid_url') {
-      pushAlert(
-        event.message || '发生未知事件。',
-        event.title || (event.type === 'error' ? '操作失败' : '状态更新'),
-        event.type === 'error' || event.variant === 'danger' ? 'destructive' : 'default',
-        event.error,
-      )
-    }
+    const data = await apiClient.config(name)
+    selectedConfigName.value = data.item.name
+    selectedConfigDetail.value = configWithName(data.item.config, data.item.name)
   }
 
   async function runAction(action: () => Promise<unknown>) {
     try {
       await action()
     } catch (error) {
-      pushAlert((error as Error).message, '操作失败', 'destructive')
+      pushError(error)
     }
   }
 
@@ -375,38 +196,31 @@ export function useDashboard() {
       pushAlert('请选择运行配置。', '提示')
       return null
     }
-    return {
-      ...selectedConfigDetail.value,
-      name: selectedConfigName.value,
-      config_name: selectedConfigName.value,
-      urls: selectedConfigDetail.value.urls || [],
-    }
+    return configWithName(selectedConfigDetail.value, selectedConfigName.value)
   }
 
   async function startSelected() {
     const payload = ensureSelectedConfig()
     if (!payload) return
-    applyStatus(await startRuntime(payload))
-    await pollScheduler()
+    const response = await runtimeMutations.startRuntime.mutateAsync(payload)
+    pushCommandMessage(response)
   }
 
   async function startSelectedTempTest() {
     const payload = ensureSelectedConfig()
     if (!payload) return
-    applyStatus(await startTempTest(payload))
-    await pollScheduler()
+    const response = await runtimeMutations.startTempTest.mutateAsync(payload)
+    pushCommandMessage(response)
   }
 
   async function stopSelected() {
-    await stopRuntime()
-    await pollStatus()
-    await pollScheduler()
+    const response = await runtimeMutations.stopRuntime.mutateAsync(undefined)
+    pushCommandMessage(response)
   }
 
   async function stopSelectedScheduler() {
-    await stopScheduler()
-    await pollStatus()
-    await pollScheduler()
+    const response = await runtimeMutations.stopScheduler.mutateAsync(undefined)
+    pushCommandMessage(response)
   }
 
   function openCreateConfig() {
@@ -418,37 +232,37 @@ export function useDashboard() {
   function openEditor() {
     // 编辑配置沿用当前选中配置；没有配置时仍提供空白表单作为兜底入口。
     if (selectedConfigName.value && selectedConfigDetail.value) {
-      formFromConfig(selectedConfigName.value, selectedConfigDetail.value)
+      applyConfigToForm(form, selectedConfigName.value, selectedConfigDetail.value)
     } else {
-      formFromConfig()
+      applyConfigToForm(form)
     }
     editorOpen.value = true
   }
 
   async function saveEditorConfig() {
-    const payload = configFromForm()
+    const payload = configFromForm(form)
     const name = payload.name?.trim() || ''
     if (!name) {
       pushAlert('请填写配置名称。', '提示')
       return
     }
-    await saveConfig(name, payload)
-    selectedConfigName.value = name
-    await refreshConfigs()
-    pushAlert(`配置 "${name}" 已保存。`)
+    const response = await configMutations.saveConfig.mutateAsync({ name, config: payload })
+    const savedName = response.item?.name || name
+    selectedConfigName.value = savedName
+    selectedConfigDetail.value = response.item ? configWithName(response.item.config, savedName) : configWithName(payload, savedName)
+    pushCommandMessage(response)
     editorOpen.value = false
   }
 
   async function deleteSelectedConfig(target: string) {
-    await deleteConfig(target)
-    selectedConfigName.value = ''
-    await refreshConfigs()
-    await pollScheduler()
-    pushAlert(`配置 "${target}" 已删除。`)
+    const response = await configMutations.deleteConfig.mutateAsync(target)
+    selectedConfigName.value = response.dashboard.configs?.[0]?.name || ''
+    selectedConfigDetail.value = null
+    pushCommandMessage(response)
   }
 
   function requestDeleteSelectedConfig() {
-    const target = form.name.trim() || selectedConfigName.value
+    const target = selectedConfigName.value
     if (!target) {
       pushAlert('请选择配置。', '提示')
       return
@@ -463,15 +277,14 @@ export function useDashboard() {
   }
 
   async function openPlanDetail(plan: PlanSummary) {
-    selectedPlanDetail.value = await getPlanDetail(plan.name)
+    const response = await apiClient.planDetail(plan.name)
+    selectedPlanDetail.value = normalizePlanDetail(response.item)
     planDialogOpen.value = true
   }
 
   async function stopNamedPlan(plan: PlanSummary) {
-    await stopPlan(plan.name)
-    await pollStatus()
-    await pollScheduler()
-    pushAlert(`计划 "${plan.name}" 已停止。`)
+    const response = await runtimeMutations.stopPlan.mutateAsync(plan.name)
+    pushCommandMessage(response)
   }
 
   function requestStopNamedPlan(plan: PlanSummary) {
@@ -485,45 +298,67 @@ export function useDashboard() {
   }
 
   function resetEditor() {
-    formFromConfig()
+    applyConfigToForm(form)
     cronPreview.value = []
   }
 
-  function formatDateTime(value?: string): string {
-    if (!value) return '无'
-    const date = new Date(value.includes('T') ? value : value.replace(' ', 'T'))
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleString()
-  }
-
-  function formatPlanSchedule(plan: PlanSummary): string {
-    if (plan.cron_expr) return `Cron ${plan.cron_expr}`
-    if (plan.interval) return `每 ${plan.interval} 分钟`
-    return '手动任务'
-  }
-
-  function planState(plan: PlanSummary): { label: string; variant: BadgeVariant } {
-    if (plan.running) return { label: '运行中', variant: 'default' }
-    if (plan.scheduler_running) return { label: '计划中', variant: 'secondary' }
-    return { label: '已停止', variant: 'outline' }
-  }
-
-  function logLevelClass(level: string) {
-    if (level === 'error') return 'text-destructive'
-    if (level === 'warning') return 'text-primary'
-    if (level === 'success') return ''
-    return 'text-muted-foreground'
-  }
-
-  let statusTimer = 0
-  let schedulerTimer = 0
-  let logTimer = 0
-  let eventTimer = 0
   let cronTimer = 0
+
+  watch(configs, (names) => {
+    if (!names.length) {
+      selectedConfigName.value = ''
+      selectedConfigDetail.value = null
+      if (!editorOpen.value) {
+        applyConfigToForm(form)
+      }
+      return
+    }
+    if (!selectedConfigName.value || !names.includes(selectedConfigName.value)) {
+      selectedConfigName.value = names[0]
+    }
+  }, { immediate: true })
 
   watch(selectedConfigName, async (name) => {
     if (name) {
       await runAction(() => loadConfigDetail(name))
+    }
+  })
+
+  watch(() => dashboardQuery.error.value, (error) => {
+    if (error) {
+      pushError(error, '刷新失败')
+    }
+  })
+
+  watch(() => dashboardQuery.data.value, (response) => {
+    const nextStatus = response?.dashboard.status
+    if (!nextStatus) return
+    speedSamples.value.push({ label: new Date().toLocaleTimeString(), value: parseSpeed(nextStatus.speed) })
+    speedSamples.value = speedSamples.value.slice(-30)
+  }, { immediate: true })
+
+  watch(() => activityQuery.data.value, async (activity) => {
+    if (!activity) return
+
+    if (logEnabled.value) {
+      logs.value = [...logs.value, ...(activity.logs || [])].slice(-200)
+    }
+    logCursor.value = Number(activity.log_cursor || logCursor.value)
+    eventCursor.value = Number(activity.event_cursor || eventCursor.value)
+
+    let shouldRefreshDashboard = false
+    for (const event of activity.events || []) {
+      const projection = projectActivityEvent(event)
+      if (projection.refreshDashboard) {
+        shouldRefreshDashboard = true
+      }
+      if (projection.toast) {
+        pushAlert(projection.toast.message, projection.toast.title, projection.toast.variant, projection.toast.detail)
+      }
+    }
+
+    if (shouldRefreshDashboard) {
+      await dashboardCache.invalidateDashboard()
     }
   })
 
@@ -532,31 +367,22 @@ export function useDashboard() {
     (value) => {
       window.clearTimeout(cronTimer)
       cronTimer = window.setTimeout(async () => {
-        if (!value.trim()) {
+        const expression = value.trim()
+        if (!expression) {
           cronPreview.value = []
           return
         }
         await runAction(async () => {
-          cronPreview.value = await previewCron(value.trim())
+          const response = await cronPreviewMutation.mutateAsync(expression)
+          if (form.cron_expr.trim() === expression) {
+            cronPreview.value = response.items || []
+          }
         })
       }, 500)
     },
   )
 
-  onMounted(async () => {
-    await runAction(refreshConfigs)
-    await Promise.all([pollStatus(), pollScheduler(), pollEvents()])
-    statusTimer = window.setInterval(pollStatus, 1000)
-    schedulerTimer = window.setInterval(pollScheduler, 2000)
-    logTimer = window.setInterval(pollLogs, 1000)
-    eventTimer = window.setInterval(pollEvents, 1000)
-  })
-
   onBeforeUnmount(() => {
-    window.clearInterval(statusTimer)
-    window.clearInterval(schedulerTimer)
-    window.clearInterval(logTimer)
-    window.clearInterval(eventTimer)
     window.clearTimeout(cronTimer)
   })
 
@@ -585,8 +411,7 @@ export function useDashboard() {
     planDialogOpen,
     planState,
     plans,
-    pollStatus,
-    refreshConfigs,
+    refreshDashboard,
     requestDeleteSelectedConfig,
     requestStopNamedPlan,
     resetEditor,
@@ -599,8 +424,9 @@ export function useDashboard() {
     startSelected,
     startSelectedTempTest,
     status,
-    statusLabel,
-    statusVariant,
+    statusLabel: statusLabelValue,
+    statusState,
+    statusVariant: statusVariantValue,
     stopNamedPlan,
     stopSelected,
     stopSelectedScheduler,

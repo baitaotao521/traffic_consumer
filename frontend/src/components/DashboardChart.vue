@@ -1,18 +1,11 @@
 <script setup lang="ts">
-import {
-  ArcElement,
-  CategoryScale,
-  Chart,
-  DoughnutController,
-  Filler,
-  Legend,
-  LinearScale,
-  LineController,
-  LineElement,
-  PointElement,
-  Tooltip,
-} from 'chart.js'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { EChartsOption } from 'echarts'
+import { use } from 'echarts/core'
+import { LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import { computed } from 'vue'
+import VChart from 'vue-echarts'
 
 const fallbackColors: Record<string, string> = {
   '--background': 'oklch(1 0 0)',
@@ -45,44 +38,10 @@ const props = withDefaults(
   },
 )
 
-Chart.register(
-  LineController,
-  DoughnutController,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  ArcElement,
-  Filler,
-  Tooltip,
-  Legend,
-)
+use([CanvasRenderer, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent])
 
-const canvas = ref<HTMLCanvasElement | null>(null)
-let chart: Chart | null = null
-
+const initOptions = { renderer: 'canvas' } as const
 const hasData = computed(() => props.values.some((value) => value > 0))
-
-function chartValues() {
-  if (props.type === 'doughnut' && !hasData.value) {
-    return [1]
-  }
-  return props.values
-}
-
-function chartLabels() {
-  if (props.type === 'doughnut' && !hasData.value) {
-    return ['无数据']
-  }
-  return props.labels
-}
-
-function chartColors() {
-  if (props.type === 'doughnut' && !hasData.value) {
-    return [resolveThemeColor('--muted')]
-  }
-  return props.values.map((_, index) => resolveThemeColor(props.colors[index % props.colors.length]))
-}
 
 function resolveThemeColor(value: string) {
   if (!value.startsWith('--')) return value
@@ -99,71 +58,147 @@ function withAlpha(value: string, alpha: number) {
   return color
 }
 
-function renderChart() {
-  if (!canvas.value) return
-  const primary = resolveThemeColor('--primary')
+function chartLabels() {
+  if (props.type === 'doughnut' && !hasData.value) {
+    return ['无数据']
+  }
+  return [...props.labels]
+}
+
+function doughnutValues() {
+  if (!hasData.value) {
+    return [1]
+  }
+  return [...props.values]
+}
+
+function doughnutColors() {
+  if (!hasData.value) {
+    return [resolveThemeColor('--muted')]
+  }
+  return props.values.map((_, index) => resolveThemeColor(props.colors[index % props.colors.length]))
+}
+
+const currentOption = computed<EChartsOption>(() => {
   const mutedForeground = resolveThemeColor('--muted-foreground')
   const border = withAlpha('--border', 0.65)
 
-  chart?.destroy()
-  chart = new Chart(canvas.value, {
-    type: props.type,
-    data: {
-      labels: chartLabels(),
-      datasets: [
-        props.type === 'line'
-          ? {
-              label: props.label || '实时速度',
-              data: props.values,
-              borderColor: primary,
-              backgroundColor: withAlpha('--primary', 0.12),
-              fill: true,
-              pointRadius: 0,
-              tension: 0.35,
-            }
-          : {
-              label: props.label || '占比',
-              data: chartValues(),
-              backgroundColor: chartColors(),
-              borderWidth: 0,
-            },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: {
-        duration: props.type === 'line' ? 280 : 420,
-        easing: 'easeOutCubic',
+  if (props.type === 'line') {
+    return {
+      animation: false,
+      grid: {
+        left: 0,
+        right: 8,
+        top: 8,
+        bottom: 0,
+        containLabel: true,
       },
-      cutout: props.type === 'doughnut' ? '64%' : undefined,
-      plugins: {
-        legend: {
-          display: props.type === 'doughnut',
-          position: 'bottom',
-          labels: { boxWidth: 10, boxHeight: 10, color: mutedForeground, usePointStyle: true },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: [...props.labels],
+        show: false,
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        splitLine: {
+          lineStyle: {
+            color: border,
+          },
+        },
+        axisLabel: {
+          color: mutedForeground,
+        },
+        axisLine: {
+          lineStyle: {
+            color: border,
+          },
         },
       },
-      scales:
-        props.type === 'line'
-          ? {
-              x: { display: false },
-              y: { beginAtZero: true, grid: { color: border }, ticks: { color: mutedForeground }, border: { color: border } },
-            }
-          : undefined,
+      tooltip: {
+        trigger: 'axis',
+        borderWidth: 0,
+        backgroundColor: resolveThemeColor('--background'),
+        textStyle: {
+          color: resolveThemeColor('--foreground'),
+        },
+      },
+      series: [
+        {
+          name: props.label || '实时速度',
+          id: `${props.chartId}-series`,
+          type: 'line',
+          data: [...props.values],
+          symbol: 'none',
+          smooth: 0.35,
+          lineStyle: {
+            color: resolveThemeColor('--primary'),
+            width: 2,
+          },
+          areaStyle: {
+            color: withAlpha('--primary', 0.12),
+          },
+          emphasis: {
+            disabled: true,
+          },
+        },
+      ],
+    }
+  }
+
+  return {
+    animation: false,
+    tooltip: {
+      trigger: 'item',
+      borderWidth: 0,
+      backgroundColor: resolveThemeColor('--background'),
+      textStyle: {
+        color: resolveThemeColor('--foreground'),
+      },
     },
-  })
-}
-
-watch(() => [props.type, props.labels, props.values, props.colors], renderChart, { deep: true })
-
-onMounted(renderChart)
-
-onBeforeUnmount(() => chart?.destroy())
+    legend: {
+      show: hasData.value,
+      bottom: 0,
+      textStyle: {
+        color: mutedForeground,
+      },
+      itemWidth: 10,
+      itemHeight: 10,
+    },
+    series: [
+      {
+        name: props.label || '占比',
+        id: `${props.chartId}-series`,
+        type: 'pie',
+        radius: ['64%', '100%'],
+        avoidLabelOverlap: true,
+        label: {
+          show: false,
+        },
+        emphasis: {
+          disabled: true,
+        },
+        data: chartLabels().map((name, index) => ({
+          name,
+          value: doughnutValues()[index],
+          itemStyle: {
+            color: doughnutColors()[index],
+          },
+        })),
+      },
+    ],
+  }
+})
 </script>
 
 <template>
   <div class="relative w-full" :style="{ height: `${height}px` }">
-    <canvas :id="chartId" ref="canvas" />
+    <VChart
+      :id="chartId"
+      :option="currentOption"
+      :init-options="initOptions"
+      class="h-full w-full"
+    />
   </div>
 </template>

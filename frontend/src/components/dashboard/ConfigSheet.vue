@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Clock3Icon, RotateCcwIcon, SaveIcon, XIcon } from '@lucide/vue'
+import { NumberFieldInput, NumberFieldRoot } from 'reka-ui'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,22 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import type { ConfigForm } from '@/types'
+
+const numberFieldInputClass = 'dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 disabled:bg-input/50 dark:disabled:bg-input/80 h-8 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 md:text-sm w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50'
+
+const integerNumberFieldProps = {
+  stepSnapping: false,
+  formatOptions: {
+    maximumFractionDigits: 0,
+  },
+}
+
+const decimalNumberFieldProps = {
+  stepSnapping: false,
+  formatOptions: {
+    maximumFractionDigits: 3,
+  },
+}
 
 defineProps<{
   cronPreview: string[]
@@ -70,7 +87,14 @@ defineEmits<{
                   <div class="grid gap-4 sm:grid-cols-2">
                     <Field>
                       <FieldLabel for="threads">线程数量</FieldLabel>
-                      <Input id="threads" v-model="form.threads" type="number" />
+                      <NumberFieldRoot
+                        id="threads"
+                        v-model="form.threads"
+                        v-bind="integerNumberFieldProps"
+                        class="w-full"
+                      >
+                        <NumberFieldInput :class="numberFieldInputClass" />
+                      </NumberFieldRoot>
                     </Field>
                     <Field>
                       <FieldLabel for="url-strategy">URL 策略</FieldLabel>
@@ -102,27 +126,69 @@ defineEmits<{
                 <FieldGroup class="grid gap-4 sm:grid-cols-2">
                   <Field>
                     <FieldLabel for="limit-speed">限速 (MB/s)</FieldLabel>
-                    <Input id="limit-speed" v-model="form.limit_speed" type="number" />
+                    <NumberFieldRoot
+                      id="limit-speed"
+                      v-model="form.limit_speed"
+                      v-bind="decimalNumberFieldProps"
+                      class="w-full"
+                    >
+                      <NumberFieldInput :class="numberFieldInputClass" />
+                    </NumberFieldRoot>
                   </Field>
                   <Field>
                     <FieldLabel for="traffic-limit">总流量 (MB)</FieldLabel>
-                    <Input id="traffic-limit" v-model="form.traffic_limit" type="number" />
+                    <NumberFieldRoot
+                      id="traffic-limit"
+                      v-model="form.traffic_limit"
+                      v-bind="integerNumberFieldProps"
+                      class="w-full"
+                    >
+                      <NumberFieldInput :class="numberFieldInputClass" />
+                    </NumberFieldRoot>
                   </Field>
                   <Field>
                     <FieldLabel for="duration">时长 (秒)</FieldLabel>
-                    <Input id="duration" v-model="form.duration" type="number" />
+                    <NumberFieldRoot
+                      id="duration"
+                      v-model="form.duration"
+                      v-bind="integerNumberFieldProps"
+                      class="w-full"
+                    >
+                      <NumberFieldInput :class="numberFieldInputClass" />
+                    </NumberFieldRoot>
                   </Field>
                   <Field>
                     <FieldLabel for="count">下载次数</FieldLabel>
-                    <Input id="count" v-model="form.count" type="number" />
+                    <NumberFieldRoot
+                      id="count"
+                      v-model="form.count"
+                      v-bind="integerNumberFieldProps"
+                      class="w-full"
+                    >
+                      <NumberFieldInput :class="numberFieldInputClass" />
+                    </NumberFieldRoot>
                   </Field>
                   <Field>
                     <FieldLabel for="url-switch-interval">URL 切换时限 (秒)</FieldLabel>
-                    <Input id="url-switch-interval" v-model="form.url_switch_interval" type="number" />
+                    <NumberFieldRoot
+                      id="url-switch-interval"
+                      v-model="form.url_switch_interval"
+                      v-bind="decimalNumberFieldProps"
+                      class="w-full"
+                    >
+                      <NumberFieldInput :class="numberFieldInputClass" />
+                    </NumberFieldRoot>
                   </Field>
                   <Field>
                     <FieldLabel for="thread-start-delay">线程启动间隔 (秒)</FieldLabel>
-                    <Input id="thread-start-delay" v-model="form.thread_start_delay" type="number" />
+                    <NumberFieldRoot
+                      id="thread-start-delay"
+                      v-model="form.thread_start_delay"
+                      v-bind="decimalNumberFieldProps"
+                      class="w-full"
+                    >
+                      <NumberFieldInput :class="numberFieldInputClass" />
+                    </NumberFieldRoot>
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -138,7 +204,14 @@ defineEmits<{
                 <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                   <Field>
                     <FieldLabel for="interval">间隔 (分钟)</FieldLabel>
-                    <Input id="interval" v-model="form.interval" type="number" />
+                    <NumberFieldRoot
+                      id="interval"
+                      v-model="form.interval"
+                      v-bind="integerNumberFieldProps"
+                      class="w-full"
+                    >
+                      <NumberFieldInput :class="numberFieldInputClass" />
+                    </NumberFieldRoot>
                   </Field>
                   <Field>
                     <FieldLabel for="cron-expr">Cron 表达式</FieldLabel>
