@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Clock3Icon, RotateCcwIcon, SaveIcon, XIcon } from '@lucide/vue'
+import { BoltIcon, Clock3Icon, RotateCcwIcon, SaveIcon, XIcon } from '@lucide/vue'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/spinner'
-import type { ConfigForm } from '@/types'
+import type { ConfigForm, HistoryRecord } from '@/types'
 
 const numberFieldInputClass = 'px-8 text-left'
 
@@ -49,7 +49,10 @@ defineProps<{
   cronPreview: string[]
   form: ConfigForm
   formatDateTime: (value?: string) => string
+  lastRun?: HistoryRecord | null
   saving?: boolean
+  testDisabled?: boolean
+  testing?: boolean
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
@@ -57,6 +60,7 @@ const open = defineModel<boolean>('open', { required: true })
 defineEmits<{
   reset: []
   save: []
+  test: []
 }>()
 </script>
 
@@ -91,7 +95,7 @@ defineEmits<{
                 <FieldGroup>
                   <Field>
                     <FieldLabel for="config-name">配置名称</FieldLabel>
-                    <Input id="config-name" v-model="form.name" placeholder="输入测试任务标识" />
+                    <Input id="config-name" v-model="form.name" placeholder="输入配置名称" />
                   </Field>
 
                   <div class="grid gap-4 sm:grid-cols-2">
@@ -318,6 +322,32 @@ defineEmits<{
                 </FieldGroup>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader class="border-b py-3">
+                <CardTitle>上次运行结果</CardTitle>
+              </CardHeader>
+              <CardContent class="grid gap-3 py-4 text-sm">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <div class="text-xs text-muted-foreground">状态</div>
+                    <div class="font-medium">{{ lastRun?.result || '无' }}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-muted-foreground">流量</div>
+                    <div class="font-medium">{{ lastRun?.bytes_consumed || '0 B' }}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-muted-foreground">下载</div>
+                    <div class="font-medium">{{ lastRun?.download_count || 0 }}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-muted-foreground">时间</div>
+                    <div class="truncate font-medium">{{ formatDateTime(lastRun?.timestamp) }}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </ScrollArea>
@@ -326,6 +356,17 @@ defineEmits<{
         <Button id="reset-config-btn" type="button" variant="outline" :disabled="saving" @click="$emit('reset')">
           <RotateCcwIcon />
           清空
+        </Button>
+        <Button
+          id="test-config-btn"
+          type="button"
+          variant="secondary"
+          :disabled="saving || testing || testDisabled"
+          @click="$emit('test')"
+        >
+          <Spinner v-if="testing" />
+          <BoltIcon v-else data-icon="inline-start" />
+          测试
         </Button>
         <Button id="save-config-btn" type="button" :disabled="saving" @click="$emit('save')">
           <Spinner v-if="saving" />

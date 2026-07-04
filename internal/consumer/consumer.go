@@ -99,6 +99,7 @@ func (c *Consumer) StartAsync() <-chan struct{} {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 	c.done = make(chan struct{})
+	c.active = true
 	done := c.done
 	c.mu.Unlock()
 
@@ -257,6 +258,12 @@ func (c *Consumer) finishRun() {
 			})
 		}
 	}
+	// 本次运行的结果已写入历史，运行态计数归零，避免停止后的配置行继续显示旧快照。
+	c.mu.Lock()
+	c.totalBytes = 0
+	c.downloadCount = 0
+	c.startTime = time.Time{}
+	c.mu.Unlock()
 	c.log("info", "任务已停止。", "#0dcaf0")
 }
 

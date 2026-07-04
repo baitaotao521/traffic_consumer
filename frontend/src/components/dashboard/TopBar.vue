@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import {
-  BoltIcon,
   CalendarClockIcon,
   ChevronsUpDownIcon,
-  PlayIcon,
   PlusIcon,
-  Settings2Icon,
   SquareIcon,
-  Trash2Icon,
 } from '@lucide/vue'
 import { computed, ref } from 'vue'
 
@@ -40,16 +36,11 @@ const props = defineProps<{
   statusLabel: string
   statusVariant: BadgeVariant
   isStopped: boolean
-  isRunning: boolean
   hasScheduler: boolean
 }>()
 
 const emit = defineEmits<{
   createConfig: []
-  deleteConfig: []
-  openEditor: []
-  start: []
-  startTemp: []
   stop: []
   stopScheduler: []
   'update:selectedConfigName': [value: string]
@@ -115,18 +106,9 @@ function handleConfigSelect(value: string) {
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <Button id="start-btn" :disabled="!isStopped" @click="emit('start')">
-          <PlayIcon />
-          开始
-        </Button>
-        <Button
-          id="temp-test-btn"
-          variant="secondary"
-          :disabled="isRunning"
-          @click="emit('startTemp')"
-        >
-          <BoltIcon />
-          临时测试
+        <Button id="create-config-btn" variant="outline" @click="emit('createConfig')">
+          <PlusIcon data-icon="inline-start" />
+          新建配置
         </Button>
         <Button
           id="stop-btn"
@@ -134,8 +116,8 @@ function handleConfigSelect(value: string) {
           :disabled="isStopped"
           @click="emit('stop')"
         >
-          <SquareIcon />
-          停止
+          <SquareIcon data-icon="inline-start" />
+          停止全部
         </Button>
         <Button
           id="stop-scheduler-btn"
@@ -143,20 +125,8 @@ function handleConfigSelect(value: string) {
           :disabled="!hasScheduler"
           @click="emit('stopScheduler')"
         >
-          <CalendarClockIcon />
+          <CalendarClockIcon data-icon="inline-start" />
           停止调度
-        </Button>
-        <Button id="create-config-btn" variant="outline" @click="emit('createConfig')">
-          <PlusIcon />
-          新建配置
-        </Button>
-        <Button id="edit-config-btn" variant="ghost" @click="emit('openEditor')">
-          <Settings2Icon />
-          编辑配置
-        </Button>
-        <Button id="delete-config-btn" variant="destructive" @click="emit('deleteConfig')">
-          <Trash2Icon />
-          删除
         </Button>
       </div>
     </div>

@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/baitaotao521/traffic_consumer/internal/model"
 )
+
+var jsonLocks sync.Map
 
 // ReadJSON 安全读取 JSON；文件不存在或内容损坏时返回空对象，延续 Python 版容错行为。
 func ReadJSON(path string, target any) error {
@@ -31,7 +34,8 @@ func ReadJSON(path string, target any) error {
 
 // WriteJSON 写回 JSON 文件，并自动创建父目录。
 func WriteJSON(path string, data any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	payload, err := json.MarshalIndent(data, "", "  ")
@@ -39,7 +43,56 @@ func WriteJSON(path string, data any) error {
 		return err
 	}
 	payload = append(payload, '\n')
-	return os.WriteFile(path, payload, 0o644)
+
+	// 配置和统计文件会被多个运行态同时写入，先写同目录临时文件再替换，
+	// 避免读端看到半截 JSON。
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpName)
+	}()
+	if _, err := tmp.Write(payload); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// MutateJSON 在同一进程内串行化同一路径的读改写，避免并发运行配置互相覆盖。
+func MutateJSON(path string, target any, mutate func() (bool, error)) error {
+	lock := jsonLock(path)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := ReadJSON(path, target); err != nil {
+		return err
+	}
+	changed, err := mutate()
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	return WriteJSON(path, target)
+}
+
+func jsonLock(path string) *sync.Mutex {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = filepath.Clean(path)
+	}
+	lock, _ := jsonLocks.LoadOrStore(abs, &sync.Mutex{})
+	return lock.(*sync.Mutex)
 }
 
 // NormalizeConfigName 统一配置名，避免空字符串写入奇怪 key。
@@ -62,15 +115,14 @@ func LoadConfigs(path string) (map[string]model.Config, error) {
 
 // SaveConfigEntry 将配置写入指定名称，保留现有 config.json 外层结构。
 func SaveConfigEntry(path, name string, cfg model.Config) error {
-	configs, err := LoadConfigs(path)
-	if err != nil {
-		return err
-	}
-	name = NormalizeConfigName(name)
-	cfg.ConfigName = ""
-	cfg.Name = ""
-	configs[name] = cfg
-	return WriteJSON(path, configs)
+	configs := map[string]model.Config{}
+	return MutateJSON(path, &configs, func() (bool, error) {
+		name = NormalizeConfigName(name)
+		cfg.ConfigName = ""
+		cfg.Name = ""
+		configs[name] = cfg
+		return true, nil
+	})
 }
 
 // LoadConfigEntry 读取指定配置；第二个返回值表示配置是否存在。
@@ -99,16 +151,18 @@ func ListConfigNames(path string) ([]string, error) {
 
 // DeleteConfigEntry 删除指定配置。
 func DeleteConfigEntry(path, name string) (bool, error) {
-	configs, err := LoadConfigs(path)
-	if err != nil {
-		return false, err
-	}
-	name = NormalizeConfigName(name)
-	if _, ok := configs[name]; !ok {
-		return false, nil
-	}
-	delete(configs, name)
-	return true, WriteJSON(path, configs)
+	configs := map[string]model.Config{}
+	deleted := false
+	err := MutateJSON(path, &configs, func() (bool, error) {
+		name = NormalizeConfigName(name)
+		if _, ok := configs[name]; !ok {
+			return false, nil
+		}
+		delete(configs, name)
+		deleted = true
+		return true, nil
+	})
+	return deleted, err
 }
 
 // RemoveURLFromConfig 在失败 URL 自动移除时同步更新持久化配置。
@@ -116,36 +170,36 @@ func RemoveURLFromConfig(path, name, url string) (bool, error) {
 	if strings.TrimSpace(url) == "" {
 		return false, nil
 	}
-	configs, err := LoadConfigs(path)
-	if err != nil {
-		return false, err
-	}
-	name = NormalizeConfigName(name)
-	cfg, ok := configs[name]
-	if !ok {
-		return false, nil
-	}
+	configs := map[string]model.Config{}
 	changed := false
-	filtered := make([]string, 0, len(cfg.URLs))
-	for _, item := range cfg.URLs {
-		if item == url {
-			changed = true
-			continue
+	err := MutateJSON(path, &configs, func() (bool, error) {
+		name = NormalizeConfigName(name)
+		cfg, ok := configs[name]
+		if !ok {
+			return false, nil
 		}
-		filtered = append(filtered, item)
-	}
-	if changed {
-		cfg.URLs = filtered
-	}
-	if cfg.URL == url {
-		cfg.URL = ""
-		changed = true
-	}
-	if !changed {
-		return false, nil
-	}
-	configs[name] = cfg
-	return true, WriteJSON(path, configs)
+		filtered := make([]string, 0, len(cfg.URLs))
+		for _, item := range cfg.URLs {
+			if item == url {
+				changed = true
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if changed {
+			cfg.URLs = filtered
+		}
+		if cfg.URL == url {
+			cfg.URL = ""
+			changed = true
+		}
+		if !changed {
+			return false, nil
+		}
+		configs[name] = cfg
+		return true, nil
+	})
+	return changed, err
 }
 
 // FindAutoStartConfigs 找出所有启用 Web 启动自启的配置。

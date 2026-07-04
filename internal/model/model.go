@@ -197,11 +197,15 @@ type PlanSummary struct {
 	SchedulerRunning bool `json:"scheduler_running"`
 	// NextRunTime 是调度器计算出的下一次触发时间。
 	NextRunTime string `json:"next_run_time,omitempty"`
-	// TotalBytes 是历史累计加当前运行流量后的展示值。
+	// TotalBytes 是当前本次运行流量的展示值，停止后归零，历史结果由 LastRun 承载。
 	TotalBytes string `json:"total_bytes"`
-	// TotalBytesRaw 是前端排序或继续聚合时使用的原始字节数。
+	// TotalBytesRaw 是当前本次运行流量的原始字节数，停止后归零。
 	TotalBytesRaw int64 `json:"total_bytes_raw"`
-	// DownloadCount 是历史累计加当前运行次数后的下载数。
+	// Speed 是当前运行中配置的实时速度展示值，停止或仅等待调度时为 0 B/s。
+	Speed string `json:"speed"`
+	// SpeedBytes 是当前运行中配置的实时速度原始字节值，顶部 KPI 直接从它聚合。
+	SpeedBytes float64 `json:"speed_bytes"`
+	// DownloadCount 是当前本次运行成功完成的响应次数，停止后归零。
 	DownloadCount int64 `json:"download_count"`
 	// Threads 是计划配置的线程数量。
 	Threads int `json:"threads"`
@@ -215,6 +219,8 @@ type PlanSummary struct {
 	AutoStart bool `json:"auto_start"`
 	// URLStrategy 是计划使用的 URL 分配策略。
 	URLStrategy string `json:"url_strategy"`
+	// LastRun 是该配置上次运行完成后的执行记录，用于列表直接展示停止或临时测试结果。
+	LastRun *HistoryRecord `json:"last_run,omitempty"`
 	// StatsHistory 预留给旧前端读取计划内联历史，当前详情接口单独返回 History。
 	StatsHistory []HistoryRecord `json:"stats_history,omitempty"`
 }

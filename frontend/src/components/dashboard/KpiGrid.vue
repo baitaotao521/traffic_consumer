@@ -5,7 +5,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader } from '@/co
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 defineProps<{
-  currentConfig: string
+  activeConfigCount: number
   downloadCount: number
   speed: string
   totalBytes: string
@@ -52,7 +52,7 @@ defineProps<{
 
     <Card size="sm" class="min-h-[116px]">
       <CardHeader>
-        <CardDescription>当前配置</CardDescription>
+        <CardDescription>活动配置</CardDescription>
         <CardAction>
           <FileTextIcon class="size-4 text-muted-foreground" />
         </CardAction>
@@ -61,10 +61,10 @@ defineProps<{
         <Tooltip>
           <TooltipTrigger as-child>
             <div id="current-config" class="truncate text-2xl font-bold">
-              {{ currentConfig }}
+              {{ activeConfigCount || 0 }}
             </div>
           </TooltipTrigger>
-          <TooltipContent>{{ currentConfig }}</TooltipContent>
+          <TooltipContent>运行与调度中的配置</TooltipContent>
         </Tooltip>
       </CardContent>
     </Card>

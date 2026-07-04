@@ -36,7 +36,7 @@ import {
   threadRows as makeThreadRows,
   normalizeFilterSelection,
 } from '@/domain/dashboard'
-import type { ConfigForm, ConfigPayload, LogEntry, PlanDetailView, PlanSummary } from '@/types'
+import type { ConfigForm, ConfigPayload, HistoryRecord, LogEntry, PlanDetailView, PlanSummary } from '@/types'
 
 type AlertVariant = 'default' | 'success' | 'info' | 'warning' | 'destructive'
 
@@ -57,6 +57,7 @@ export function useDashboard() {
   const logEnabled = ref(false)
   const selectedLogSources = ref(logSourceOptions.map((option) => option.value))
   const selectedLogLevels = ref(logLevelOptions.map((option) => option.value))
+  const lastRunByConfig = reactive<Record<string, HistoryRecord | undefined>>({})
   const logCursor = ref(0)
   const eventCursor = ref(0)
   const editorOpen = ref(false)
@@ -100,6 +101,7 @@ export function useDashboard() {
   const status = computed(() => dashboard.value.status)
   const scheduler = computed(() => dashboard.value.scheduler)
   const plans = computed(() => dashboard.value.plans || scheduler.value.plans || [])
+  const activeConfigCount = computed(() => plans.value.filter((plan) => plan.running || plan.scheduler_running).length)
   const urlStats = computed(() => status.value.url_usage_stats || [])
   const currentConfig = computed(() => currentConfigName(status.value, selectedConfigName.value))
   const statusLabelValue = computed(() => statusLabel(status.value))
@@ -131,6 +133,11 @@ export function useDashboard() {
   const isStoppingRuntime = computed(() => runtimeMutations.stopRuntime.isPending.value)
   const isStoppingScheduler = computed(() => runtimeMutations.stopScheduler.isPending.value)
   const isStoppingPlan = computed(() => runtimeMutations.stopPlan.isPending.value)
+  const editorLastRun = computed(() => {
+    const name = form.name.trim() || selectedConfigName.value
+    if (!name) return null
+    return lastRunByConfig[name] || plans.value.find((plan) => plan.name === name)?.last_run || null
+  })
   const isConfirmingAction = computed(() => {
     if (confirmDialogPendingKey.value === 'deleteConfig') return isDeletingConfig.value
     if (confirmDialogPendingKey.value === 'stopPlan') return isStoppingPlan.value
@@ -292,6 +299,14 @@ export function useDashboard() {
     selectedConfigDetail.value = configWithName(data.item.config, data.item.name)
   }
 
+  async function loadConfigPayload(name: string): Promise<ConfigPayload> {
+    const data = await apiClient.config(name)
+    const payload = configWithName(data.item.config, data.item.name)
+    selectedConfigName.value = data.item.name
+    selectedConfigDetail.value = payload
+    return payload
+  }
+
   async function runAction(action: () => Promise<unknown>) {
     try {
       await action()
@@ -314,9 +329,32 @@ export function useDashboard() {
     await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(payload))
   }
 
-  async function startSelectedTempTest() {
-    const payload = ensureSelectedConfig()
-    if (!payload) return
+  async function startPlan(plan: PlanSummary) {
+    if (plan.running || plan.scheduler_running) {
+      pushAlert({ title: `配置 "${plan.name}" 已在运行。`, variant: 'warning' })
+      return
+    }
+    const payload = await loadConfigPayload(plan.name)
+    await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(payload))
+  }
+
+  async function startEditorTempTest() {
+    if (status.value.state === 'running') {
+      pushAlert({ title: '已有下载任务正在运行。', variant: 'warning' })
+      return
+    }
+    const activePlan = plans.value.find((item) => item.running)
+    if (activePlan) {
+      pushAlert({ title: `配置 "${activePlan.name}" 正在运行。`, variant: 'warning' })
+      return
+    }
+    const payload = configFromForm(form)
+    const name = payload.name?.trim() || ''
+    if (!name) {
+      pushAlert({ title: '请填写配置名称。', variant: 'warning' })
+      return
+    }
+    selectedConfigName.value = name
     await runRuntimeMutation(() => runtimeMutations.startTempTest.mutateAsync(payload))
   }
 
@@ -344,6 +382,12 @@ export function useDashboard() {
     editorOpen.value = true
   }
 
+  async function openPlanEditor(plan: PlanSummary) {
+    const payload = await loadConfigPayload(plan.name)
+    applyConfigToForm(form, plan.name, payload)
+    editorOpen.value = true
+  }
+
   async function saveEditorConfig() {
     const payload = configFromForm(form)
     const name = payload.name?.trim() || ''
@@ -366,8 +410,8 @@ export function useDashboard() {
     pushCommandMessage(response)
   }
 
-  function requestDeleteSelectedConfig() {
-    const target = selectedConfigName.value
+  function requestDeleteSelectedConfig(targetName?: string) {
+    const target = targetName || selectedConfigName.value
     if (!target) {
       pushAlert({ title: '请选择配置。', variant: 'warning' })
       return
@@ -424,6 +468,14 @@ export function useDashboard() {
     }
   }, { immediate: true })
 
+  watch(plans, (items) => {
+    for (const plan of items) {
+      if (plan.last_run) {
+        lastRunByConfig[plan.name] = plan.last_run
+      }
+    }
+  }, { immediate: true })
+
   watch(selectedConfigName, async (name) => {
     if (name) {
       await runAction(() => loadConfigDetail(name))
@@ -475,6 +527,9 @@ export function useDashboard() {
       const projection = projectActivityEvent(event)
       if (projection.refreshDashboard) {
         shouldRefreshDashboard = true
+      }
+      if (event.type === 'history_update' && event.config && event.history_record) {
+        lastRunByConfig[event.config] = event.history_record
       }
       if (projection.toast) {
         pushAlert(projection.toast)
@@ -537,6 +592,7 @@ export function useDashboard() {
   })
 
   return {
+    activeConfigCount,
     cancelPendingAction,
     clearLogs,
     confirmDialogActionLabel,
@@ -548,6 +604,7 @@ export function useDashboard() {
     configs,
     cronPreview,
     currentConfig,
+    editorLastRun,
     isConfirmingAction,
     isDashboardLoading,
     isDeletingConfig,
@@ -571,6 +628,7 @@ export function useDashboard() {
     logs,
     openCreateConfig,
     openEditor,
+    openPlanEditor,
     openPlanDetail,
     planDialogOpen,
     planState,
@@ -587,8 +645,9 @@ export function useDashboard() {
     selectedPlanDetail,
     speedLabels,
     speedValues,
+    startEditorTempTest,
+    startPlan,
     startSelected,
-    startSelectedTempTest,
     status,
     statusLabel: statusLabelValue,
     statusState,

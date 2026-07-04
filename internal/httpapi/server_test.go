@@ -44,6 +44,42 @@ func TestDashboardReturnsAggregateSnapshot(t *testing.T) {
 	if response.Dashboard.Plans == nil || response.Dashboard.Scheduler.Plans == nil {
 		t.Fatalf("dashboard should normalize plan slices: %+v", response.Dashboard)
 	}
+	plan, ok := findPlan(response.Dashboard.Plans, "demo")
+	if !ok || plan.Running || plan.Threads != 2 || plan.Speed != "0 B/s" {
+		t.Fatalf("saved stopped config should appear as a stopped plan row: %+v", response.Dashboard.Plans)
+	}
+	if len(response.Dashboard.Scheduler.Plans) != len(response.Dashboard.Plans) {
+		t.Fatalf("scheduler plans should mirror dashboard plans: %+v", response.Dashboard.Scheduler.Plans)
+	}
+}
+
+func TestStartRuntimeReturnsDashboardWithRunningConfigMetrics(t *testing.T) {
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer downloadServer.Close()
+
+	server := newTestServer(t)
+	t.Cleanup(func() { server.Manager.StopAll() })
+	payload := model.Config{ConfigName: "demo", URLs: []string{downloadServer.URL}, Threads: 1, URLStrategy: "round_robin"}
+	data, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/commands/start-runtime", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var started RuntimeCommandResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	plan, ok := findPlan(started.Dashboard.Plans, "demo")
+	if !ok || !plan.Running || plan.Threads != 1 || plan.Speed == "" {
+		t.Fatalf("running config metrics missing: %+v", started.Dashboard.Plans)
+	}
+	if started.Dashboard.Status.State != model.StateRunning || started.Dashboard.Status.ThreadCount != 1 {
+		t.Fatalf("aggregate status should reflect running config: %+v", started.Dashboard.Status)
+	}
 }
 
 func TestConfigurationCommandReturnsUpdatedDashboard(t *testing.T) {
@@ -215,4 +251,13 @@ func newTestServer(t *testing.T) *Server {
 		StatsFile:  filepath.Join(dir, "stats.json"),
 	}
 	return New(appruntime.New(paths), "../..")
+}
+
+func findPlan(plans []model.PlanSummary, name string) (model.PlanSummary, bool) {
+	for _, plan := range plans {
+		if plan.Name == name {
+			return plan, true
+		}
+	}
+	return model.PlanSummary{}, false
 }

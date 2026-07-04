@@ -46,6 +46,8 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
   `source` is the backend-owned dimension for frontend log filtering.
 - Command endpoints return `{ dashboard, message }`; config save also returns `item`.
 - Config save/start bodies use `model.Config` / generated `ConfigWritable`. Optional numeric/string fields are omitted when blank. `urls: []` is preserved as an explicit empty URL list.
+- `DashboardSnapshot.plans` is the configuration list contract. `PlanSummary.total_bytes`, `total_bytes_raw`, and `download_count` describe the current active run only; stopped rows and waiting scheduled rows must return `0 B` / `0` for those fields. The completed result belongs in `PlanSummary.last_run` and `GET /api/plans/{name}.history`, not in row metrics.
+- `StatusPayload.total_bytes` and `download_count` aggregate the same current-run values shown in `DashboardSnapshot.plans`. They are live KPIs, not historical lifetime totals. Historical records stay in `stats.json` and are surfaced through `last_run` / plan detail history.
 - Dashboard numeric form fields must use the component-library number input pattern (`NumberField` / Reka `NumberFieldRoot` + `NumberFieldInput`), not a generic `Input type="number"`. The library's number field owns the numeric model state; form adapters should receive `number | undefined` and must not trim or parse these fields as strings.
 - Cron preview request is `{ "expression": "*/5 * * * *" }`, not the old `{ "cron_expr": ... }`.
 - Frontend server state belongs in Vue Query. Components must not handwrite API URLs or parse Huma Problem Details directly.
@@ -71,6 +73,7 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 ### 6. Tests Required
 
 - HTTP handler tests must assert new response shapes for dashboard, config commands, cron preview, activity cursors, activity log filters, and OpenAPI schema.
+- Runtime tests must assert that stopped immediate runs clear `PlanSummary.total_bytes_raw` and `download_count` while preserving `last_run`, and that scheduled runtime items remain registered after a trigger but also clear current-run row metrics.
 - Tests must assert old runtime routes are absent from OpenAPI and return `404`.
 - Frontend contract changes require `npm --prefix frontend run api:generate` and `npm --prefix frontend run build`.
 - Go API changes require `gofmt -w .` and `go test ./...`.
@@ -97,3 +100,18 @@ const activity = await apiClient.activity(10, 10, {
 ```
 
 `apiClient` wraps the generated Hey API SDK, and Vue Query owns dashboard/activity polling plus command cache updates.
+
+#### Wrong
+
+```go
+plan.TotalBytesRaw = history.TotalBytesRaw + currentTotal
+plan.DownloadCount = history.DownloadCount + currentCount
+```
+
+#### Correct
+
+```go
+plan.TotalBytesRaw = currentTotal
+plan.DownloadCount = currentCount
+plan.LastRun = history.LastRun
+```

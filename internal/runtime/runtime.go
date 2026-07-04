@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,15 +25,16 @@ type Manager struct {
 	// Stats 负责读取和写入 stats.json，计划列表也从这里聚合历史。
 	Stats *stats.Store
 
-	mu       sync.RWMutex
-	primary  *Item
-	auto     []*Item
-	temp     []*Item
-	logSeq   int64
-	logs     []model.LogEntry
-	eventSeq int64
-	events   []model.Event
-	location *time.Location
+	// lifecycleMu 串行化启动、停止和临时测试注册流程，避免同名配置在半注册状态被重复启动。
+	lifecycleMu sync.Mutex
+	mu          sync.RWMutex
+	itemsByName map[string]*Item
+	temp        []*Item
+	logSeq      int64
+	logs        []model.LogEntry
+	eventSeq    int64
+	events      []model.Event
+	location    *time.Location
 }
 
 // Item 是一个运行计划或临时测试实例。
@@ -72,9 +74,10 @@ func New(paths config.Paths) *Manager {
 		loc = time.Local
 	}
 	return &Manager{
-		Paths:    paths,
-		Stats:    stats.NewStore(paths.StatsFile),
-		location: loc,
+		Paths:       paths,
+		Stats:       stats.NewStore(paths.StatsFile),
+		itemsByName: map[string]*Item{},
+		location:    loc,
 	}
 }
 
@@ -177,6 +180,7 @@ func (m *Manager) LaunchAutoStartConfigs() bool {
 			continue
 		}
 		item.AutoStart = true
+		var done <-chan struct{}
 		if item.isScheduled() {
 			if err := m.startScheduler(item); err != nil {
 				m.AddEvent(errorEvent(err.Error()))
@@ -185,16 +189,17 @@ func (m *Manager) LaunchAutoStartConfigs() bool {
 			m.addRuntimeLog(name, "info", "服务启动时已恢复等待调度的配置。")
 			scheduled = append(scheduled, name)
 		} else {
-			item.Consumer.StartAsync()
+			done = item.Consumer.StartAsync()
 			m.addRuntimeLog(name, "info", "服务启动时已恢复下载任务。")
 			startedNow = append(startedNow, name)
 		}
 		m.mu.Lock()
-		m.auto = append(m.auto, item)
-		if m.primary == nil {
-			m.primary = item
-		}
+		m.ensureItemsLocked()
+		m.itemsByName[item.Name] = item
 		m.mu.Unlock()
+		if done != nil {
+			go m.cleanupRuntimeWhenDone(item, done)
+		}
 	}
 	if len(startedNow) == 0 && len(scheduled) == 0 {
 		return false
@@ -219,33 +224,41 @@ func (m *Manager) LaunchAutoStartConfigs() bool {
 
 // StartConsumer 启动手动配置；若配置带调度参数则只进入等待调度。
 func (m *Manager) StartConsumer(cfg model.Config) (model.StatusPayload, error) {
-	snapshot := m.snapshot()
-	if snapshot.hasActiveDownload {
-		return model.StatusPayload{}, errors.New("流量消耗器已在运行。")
-	}
-	// Web 定时任务启动后承载 goroutine 可能已经退出，但 cron 仍在后台。
-	// 手动启动新配置前必须停掉旧计划，避免用户看着已切配置，旧计划却偷偷下载。
-	if snapshot.hasActiveScheduler {
-		m.addRuntimeLog("", "info", "检测到已有等待中的计划，切换配置前会先停止旧调度。")
-		m.StopAll()
-	}
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	name := storage.NormalizeConfigName(firstNonEmpty(cfg.ConfigName, cfg.Name))
 	item, err := m.createItem(name, cfg, false, nil)
 	if err != nil {
 		return model.StatusPayload{}, err
 	}
+
+	var stale *Item
+	m.mu.Lock()
+	m.ensureItemsLocked()
+	if existing := m.itemsByName[name]; existing != nil {
+		// 多配置运行允许不同配置并行，但同名配置只能有一个下载或调度实例。
+		if existing.Consumer.IsActive() || existing.Cron != nil {
+			m.mu.Unlock()
+			return model.StatusPayload{}, fmt.Errorf("配置 \"%s\" 已在运行或等待调度。", name)
+		}
+		stale = existing
+	}
+	m.itemsByName[name] = item
+	m.mu.Unlock()
+	stopItem(stale)
+
 	if item.isScheduled() {
 		if err := m.startScheduler(item); err != nil {
+			m.removeRuntimeItem(name, item)
 			return model.StatusPayload{}, err
 		}
 		m.addRuntimeLog(name, "info", "配置已切换到等待调度状态。")
 	} else {
-		item.Consumer.StartAsync()
+		done := item.Consumer.StartAsync()
+		go m.cleanupRuntimeWhenDone(item, done)
 		m.addRuntimeLog(name, "info", "配置已启动下载任务。")
 	}
-	m.mu.Lock()
-	m.primary = item
-	m.mu.Unlock()
 
 	state := model.StateRunning
 	message := fmt.Sprintf("流量消耗器已使用配置启动: %s", name)
@@ -259,6 +272,9 @@ func (m *Manager) StartConsumer(cfg model.Config) (model.StatusPayload, error) {
 
 // StartTempTest 使用当前配置执行最多 100MB 的立即验证。
 func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	name := storage.NormalizeConfigName(firstNonEmpty(cfg.ConfigName, cfg.Name))
 	snapshot := m.snapshot()
 	if snapshot.hasActiveDownload {
@@ -275,7 +291,7 @@ func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
 		}
 		resume = &ResumeTarget{Name: name, Config: scheduled.Config, AutoStart: scheduled.AutoStart}
 		m.addRuntimeLog(name, "info", "临时测试开始前已暂停同名等待中的计划，测试结束后会自动恢复。")
-		m.StopRuntimeConfig(name)
+		m.stopRuntimeConfig(name)
 	}
 
 	testCfg := cfg
@@ -309,6 +325,12 @@ func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
 
 // StopAll 停止所有下载与调度。
 func (m *Manager) StopAll() bool {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	return m.stopAll()
+}
+
+func (m *Manager) stopAll() bool {
 	items := m.items()
 	stoppedSchedules := []string{}
 	stoppedRuns := []string{}
@@ -324,8 +346,7 @@ func (m *Manager) StopAll() bool {
 		}
 	}
 	m.mu.Lock()
-	m.primary = nil
-	m.auto = nil
+	m.itemsByName = map[string]*Item{}
 	m.temp = nil
 	m.mu.Unlock()
 	stopped := false
@@ -348,18 +369,20 @@ func (m *Manager) StopAll() bool {
 
 // StopRuntimeConfig 仅停止指定名称的计划或任务。
 func (m *Manager) StopRuntimeConfig(name string) bool {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	return m.stopRuntimeConfig(name)
+}
+
+func (m *Manager) stopRuntimeConfig(name string) bool {
 	name = storage.NormalizeConfigName(name)
 	var targets []*Item
 	m.mu.Lock()
-	if m.primary != nil && m.primary.Name == name {
-		targets = append(targets, m.primary)
-		m.primary = nil
+	if item := m.itemsByName[name]; item != nil {
+		targets = append(targets, item)
+		delete(m.itemsByName, name)
 	}
-	m.auto, targets = removeNamed(m.auto, name, targets)
 	m.temp, targets = removeNamed(m.temp, name, targets)
-	if m.primary == nil && len(m.auto) > 0 {
-		m.primary = m.auto[0]
-	}
 	m.mu.Unlock()
 
 	stopped := false
@@ -388,40 +411,61 @@ func (m *Manager) StopRuntimeConfig(name string) bool {
 	return len(targets) > 0 || stopped
 }
 
+func (m *Manager) removeRuntimeItem(name string, target *Item) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current := m.itemsByName[storage.NormalizeConfigName(name)]; current == target {
+		delete(m.itemsByName, storage.NormalizeConfigName(name))
+	}
+}
+
 // Status 返回当前状态面板数据。
 func (m *Manager) Status() model.StatusPayload {
 	snapshot := m.snapshot()
-	if snapshot.primary != nil && snapshot.primary.Consumer.IsActive() {
-		item := snapshot.primary
-		total, count, startedAt, _ := item.Consumer.Snapshot()
-		elapsed := time.Since(startedAt).Seconds()
-		speed := 0.0
-		if elapsed > 0 {
-			speed = float64(total) / elapsed
-		}
-		return model.StatusPayload{
-			TotalBytes:    stats.FormatBytes(float64(total)),
-			Speed:         stats.FormatBytes(speed) + "/s",
-			DownloadCount: count,
-			Running:       true,
-			State:         model.StateRunning,
-			Config:        item.Name,
-			ThreadCount:   item.Config.Threads,
-			ThreadStatus:  item.Consumer.URLMgr.ThreadSnapshot(item.Config.Threads),
-			URLUsageStats: buildURLUsageStats(item.Consumer.URLMgr.URLs(), item.Consumer.URLMgr.UsageSnapshot()),
-		}
-	}
 	state := model.StateStopped
-	if snapshot.hasActiveScheduler {
+	if snapshot.hasActiveDownload {
+		state = model.StateRunning
+	} else if snapshot.hasActiveScheduler {
 		state = model.StateScheduled
 	}
+
+	plans := m.PlanSummaries()
+	totalRaw := int64(0)
+	downloadCount := int64(0)
+	speedBytes := 0.0
+	threadCount := 0
+	activeConfigs := []string{}
+	for _, plan := range plans {
+		totalRaw += plan.TotalBytesRaw
+		downloadCount += plan.DownloadCount
+		speedBytes += plan.SpeedBytes
+		if plan.Running || plan.SchedulerRunning {
+			threadCount += plan.Threads
+			activeConfigs = append(activeConfigs, plan.Name)
+		}
+	}
+
+	threadStatus := map[int]string{}
+	urlUsageStats := []model.URLUsageStat{}
+	if snapshot.focus != nil && snapshot.focus.Consumer.IsActive() {
+		item := snapshot.focus
+		threadStatus = item.Consumer.URLMgr.ThreadSnapshot(item.Config.Threads)
+		urlUsageStats = buildURLUsageStats(item.Consumer.URLMgr.URLs(), item.Consumer.URLMgr.UsageSnapshot())
+	}
+	configLabel := strings.Join(activeConfigs, ", ")
+	if configLabel == "" {
+		configLabel = "全部配置"
+	}
 	return model.StatusPayload{
-		Running:       snapshot.hasActiveScheduler,
+		TotalBytes:    stats.FormatBytes(float64(totalRaw)),
+		Speed:         formatSpeed(speedBytes),
+		DownloadCount: downloadCount,
+		Running:       state != model.StateStopped,
 		State:         state,
-		Config:        strings.Join(snapshot.configNames, ", "),
-		ThreadCount:   snapshot.threadCount,
-		ThreadStatus:  map[int]string{},
-		URLUsageStats: []model.URLUsageStat{},
+		Config:        configLabel,
+		ThreadCount:   threadCount,
+		ThreadStatus:  threadStatus,
+		URLUsageStats: urlUsageStats,
 	}
 }
 
@@ -447,25 +491,61 @@ func (m *Manager) SchedulerStatus() model.SchedulerPayload {
 	return model.SchedulerPayload{NextRunTime: nextRun, JobDetails: strings.Join(details, " | "), Plans: plans}
 }
 
-// PlanSummaries 返回所有非临时运行计划。
+// PlanSummaries 返回保存配置和非临时运行态合并后的配置行。
 func (m *Manager) PlanSummaries() []model.PlanSummary {
 	historySummary, _ := m.Stats.SummaryByConfig()
-	plans := []model.PlanSummary{}
+	savedConfigs, _ := storage.LoadConfigs(m.Paths.ConfigFile)
+	planByName := map[string]model.PlanSummary{}
+	names := make([]string, 0, len(savedConfigs))
+	for name, cfg := range savedConfigs {
+		name = storage.NormalizeConfigName(name)
+		names = append(names, name)
+		normalized := cfg.Normalize(config.DefaultURLs, name, false)
+		history := historySummary[name]
+		planByName[name] = model.PlanSummary{
+			Name:          name,
+			TotalBytes:    stats.FormatBytes(0),
+			TotalBytesRaw: 0,
+			Speed:         formatSpeed(0),
+			SpeedBytes:    0,
+			DownloadCount: 0,
+			Threads:       normalized.Threads,
+			URLCount:      len(normalized.URLs),
+			CronExpr:      normalized.CronExpr,
+			Interval:      normalized.Interval,
+			AutoStart:     normalized.AutoStart,
+			URLStrategy:   normalized.URLStrategy,
+			LastRun:       history.LastRun,
+		}
+	}
 	for _, item := range m.items() {
 		if item.Temp {
 			continue
 		}
+		if _, exists := planByName[item.Name]; !exists {
+			names = append(names, item.Name)
+		}
 		history := historySummary[item.Name]
-		total, count, _, active := item.Consumer.Snapshot()
-		totalRaw := history.TotalBytesRaw + total
-		downloadCount := history.DownloadCount + count
-		plans = append(plans, model.PlanSummary{
+		total, count, startedAt, active := item.Consumer.Snapshot()
+		// 列表里的流量和下载数只展示本次正在运行的数据；停止后的结果进入 LastRun 和历史详情。
+		currentTotal := int64(0)
+		currentCount := int64(0)
+		if active {
+			currentTotal = total
+			currentCount = count
+		}
+		totalRaw := currentTotal
+		downloadCount := currentCount
+		speedBytes := liveSpeedBytes(currentTotal, startedAt, active)
+		planByName[item.Name] = model.PlanSummary{
 			Name:             item.Name,
 			Running:          active,
 			SchedulerRunning: item.Cron != nil,
 			NextRunTime:      item.nextRun(),
 			TotalBytes:       stats.FormatBytes(float64(totalRaw)),
 			TotalBytesRaw:    totalRaw,
+			Speed:            formatSpeed(speedBytes),
+			SpeedBytes:       speedBytes,
 			DownloadCount:    downloadCount,
 			Threads:          item.Config.Threads,
 			URLCount:         len(item.Consumer.URLMgr.URLs()),
@@ -473,7 +553,13 @@ func (m *Manager) PlanSummaries() []model.PlanSummary {
 			Interval:         item.Config.Interval,
 			AutoStart:        item.Config.AutoStart,
 			URLStrategy:      item.Config.URLStrategy,
-		})
+			LastRun:          history.LastRun,
+		}
+	}
+	sort.Strings(names)
+	plans := make([]model.PlanSummary, 0, len(names))
+	for _, name := range names {
+		plans = append(plans, planByName[name])
 	}
 	return plans
 }
@@ -500,7 +586,12 @@ func (m *Manager) PlanDetail(name string) (model.PlanDetailPayload, error) {
 		historySummary, _ := m.Stats.SummaryByConfig()
 		summary = historySummary[name]
 		summary.Name = name
-		summary.TotalBytes = stats.FormatBytes(float64(summary.TotalBytesRaw))
+		// 详情头部跟列表保持一致，只展示当前运行态；历史结果留在 history 明细中。
+		summary.TotalBytes = stats.FormatBytes(0)
+		summary.TotalBytesRaw = 0
+		summary.Speed = formatSpeed(0)
+		summary.SpeedBytes = 0
+		summary.DownloadCount = 0
 		summary.Threads = cfg.Threads
 		summary.CronExpr = cfg.CronExpr
 		summary.Interval = cfg.Interval
@@ -567,6 +658,9 @@ func (m *Manager) startScheduler(item *Item) error {
 
 func (m *Manager) cleanupTempWhenDone(item *Item, done <-chan struct{}) {
 	<-done
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	var resume *ResumeTarget
 	m.mu.Lock()
 	next := make([]*Item, 0, len(m.temp))
@@ -594,15 +688,23 @@ func (m *Manager) cleanupTempWhenDone(item *Item, done <-chan struct{}) {
 		return
 	}
 	m.mu.Lock()
-	if resume.AutoStart {
-		m.auto = append(m.auto, restored)
-		if m.primary == nil {
-			m.primary = restored
-		}
-	} else {
-		m.primary = restored
-	}
+	m.ensureItemsLocked()
+	m.itemsByName[restored.Name] = restored
 	m.mu.Unlock()
+}
+
+func (m *Manager) cleanupRuntimeWhenDone(item *Item, done <-chan struct{}) {
+	<-done
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	m.removeRuntimeItem(item.Name, item)
+}
+
+func (m *Manager) ensureItemsLocked() {
+	if m.itemsByName == nil {
+		m.itemsByName = map[string]*Item{}
+	}
 }
 
 func (m *Manager) items() []*Item {
@@ -610,7 +712,20 @@ func (m *Manager) items() []*Item {
 	defer m.mu.RUnlock()
 	items := []*Item{}
 	seen := map[*Item]bool{}
-	for _, item := range append(append([]*Item{m.primary}, m.auto...), m.temp...) {
+	names := make([]string, 0, len(m.itemsByName))
+	for name := range m.itemsByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		item := m.itemsByName[name]
+		if item == nil || seen[item] {
+			continue
+		}
+		seen[item] = true
+		items = append(items, item)
+	}
+	for _, item := range m.temp {
 		if item == nil || seen[item] {
 			continue
 		}
@@ -636,11 +751,11 @@ func (m *Manager) snapshot() runtimeSnapshot {
 		snapshot.configNames = append(snapshot.configNames, item.Name)
 	}
 	if len(snapshot.active) > 0 {
-		snapshot.primary = snapshot.active[0]
+		snapshot.focus = snapshot.active[0]
 	} else if len(snapshot.scheduled) > 0 {
-		snapshot.primary = snapshot.scheduled[0]
+		snapshot.focus = snapshot.scheduled[0]
 	} else if len(items) > 0 {
-		snapshot.primary = items[0]
+		snapshot.focus = items[0]
 	}
 	return snapshot
 }
@@ -649,7 +764,7 @@ type runtimeSnapshot struct {
 	records            []*Item
 	active             []*Item
 	scheduled          []*Item
-	primary            *Item
+	focus              *Item
 	threadCount        int
 	configNames        []string
 	hasActiveDownload  bool
@@ -690,7 +805,12 @@ func stopItem(item *Item) bool {
 	if item.Consumer.IsActive() {
 		stopped = true
 	}
+	done := item.Consumer.Done()
 	item.Consumer.Stop()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+	}
 	if item.Cron != nil {
 		ctx := item.Cron.Stop()
 		select {
@@ -713,6 +833,24 @@ func removeNamed(items []*Item, name string, targets []*Item) ([]*Item, []*Item)
 		remaining = append(remaining, item)
 	}
 	return remaining, targets
+}
+
+func liveSpeedBytes(totalBytes int64, startedAt time.Time, active bool) float64 {
+	if !active || startedAt.IsZero() {
+		return 0
+	}
+	elapsed := time.Since(startedAt).Seconds()
+	if elapsed <= 0 {
+		return 0
+	}
+	return float64(totalBytes) / elapsed
+}
+
+func formatSpeed(bytesPerSecond float64) string {
+	if bytesPerSecond <= 0 {
+		return "0 B/s"
+	}
+	return stats.FormatBytes(bytesPerSecond) + "/s"
 }
 
 func buildURLUsageStats(urls []string, usage map[string]int64) []model.URLUsageStat {

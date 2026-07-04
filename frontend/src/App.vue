@@ -19,7 +19,7 @@ import { useDashboard } from '@/composables/useDashboard'
 const dashboard = useDashboard()
 
 const isStopped = computed(() => dashboard.status.value.state === 'stopped')
-const isRunning = computed(() => dashboard.status.value.state === 'running')
+const hasActiveDownload = computed(() => dashboard.status.value.state === 'running')
 const hasScheduler = computed(() => {
   return Boolean(dashboard.scheduler.value.job_details) || dashboard.plans.value.some((plan) => plan.scheduler_running)
 })
@@ -37,13 +37,9 @@ const hasScheduler = computed(() => {
               <Skeleton class="h-9 w-[220px]" />
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <Skeleton class="h-9 w-20" />
-              <Skeleton class="h-9 w-24" />
-              <Skeleton class="h-9 w-20" />
               <Skeleton class="h-9 w-24" />
               <Skeleton class="h-9 w-24" />
               <Skeleton class="h-9 w-24" />
-              <Skeleton class="h-9 w-20" />
             </div>
           </div>
         </div>
@@ -53,6 +49,8 @@ const hasScheduler = computed(() => {
             <Skeleton v-for="item in 4" :key="`kpi-skeleton-${item}`" class="h-[116px] rounded-xl" />
           </div>
 
+          <Skeleton class="h-[420px] rounded-xl" />
+
           <div class="grid items-start gap-6 xl:grid-cols-12">
             <div class="grid gap-6 xl:col-span-8">
               <Skeleton class="h-[360px] rounded-xl" />
@@ -61,7 +59,6 @@ const hasScheduler = computed(() => {
 
             <div class="grid auto-rows-min content-start gap-6 xl:col-span-4">
               <Skeleton class="h-[360px] rounded-xl" />
-              <Skeleton class="h-[320px] rounded-xl" />
             </div>
           </div>
 
@@ -74,25 +71,32 @@ const hasScheduler = computed(() => {
           v-model:selected-config-name="dashboard.selectedConfigName.value"
           :configs="dashboard.configs.value"
           :has-scheduler="hasScheduler"
-          :is-running="isRunning"
           :is-stopped="isStopped"
           :status-label="dashboard.statusLabel.value"
           :status-variant="dashboard.statusVariant.value"
           @create-config="dashboard.openCreateConfig"
-          @delete-config="dashboard.requestDeleteSelectedConfig"
-          @open-editor="dashboard.openEditor"
-          @start="dashboard.runAction(dashboard.startSelected)"
-          @start-temp="dashboard.runAction(dashboard.startSelectedTempTest)"
           @stop="dashboard.runAction(dashboard.stopSelected)"
           @stop-scheduler="dashboard.runAction(dashboard.stopSelectedScheduler)"
         />
 
         <section class="mx-auto flex max-w-[1600px] flex-col gap-6 px-6 py-6">
           <KpiGrid
-            :current-config="dashboard.currentConfig.value"
+            :active-config-count="dashboard.activeConfigCount.value"
             :download-count="dashboard.status.value.download_count || 0"
             :speed="dashboard.status.value.speed || '0 B/s'"
             :total-bytes="dashboard.status.value.total_bytes || '0 B'"
+          />
+
+          <PlanPanel
+            :format-date-time="dashboard.formatDateTime"
+            :format-plan-schedule="dashboard.formatPlanSchedule"
+            :plan-state="dashboard.planState"
+            :plans="dashboard.plans.value"
+            @delete-plan="dashboard.requestDeleteSelectedConfig($event.name)"
+            @edit-plan="dashboard.runAction(() => dashboard.openPlanEditor($event))"
+            @open-plan-detail="dashboard.runAction(() => dashboard.openPlanDetail($event))"
+            @start-plan="dashboard.runAction(() => dashboard.startPlan($event))"
+            @stop-plan="dashboard.requestStopNamedPlan($event)"
           />
 
           <div class="grid items-start gap-6 xl:grid-cols-12">
@@ -111,15 +115,6 @@ const hasScheduler = computed(() => {
                 :labels="dashboard.urlChartLabels.value"
                 :stats="dashboard.urlStats.value"
                 :values="dashboard.urlChartValues.value"
-              />
-              <PlanPanel
-                :format-date-time="dashboard.formatDateTime"
-                :format-plan-schedule="dashboard.formatPlanSchedule"
-                :job-details="dashboard.scheduler.value.job_details || ''"
-                :plan-state="dashboard.planState"
-                :plans="dashboard.plans.value"
-                @open-plan-detail="dashboard.runAction(() => dashboard.openPlanDetail($event))"
-                @stop-plan="dashboard.requestStopNamedPlan($event)"
               />
             </div>
           </div>
@@ -170,9 +165,13 @@ const hasScheduler = computed(() => {
         :cron-preview="dashboard.cronPreview.value"
         :form="dashboard.form"
         :format-date-time="dashboard.formatDateTime"
+        :last-run="dashboard.editorLastRun.value"
         :saving="dashboard.isSavingConfig.value"
+        :test-disabled="hasActiveDownload"
+        :testing="dashboard.isStartingTempTest.value"
         @reset="dashboard.resetEditor"
         @save="dashboard.runAction(dashboard.saveEditorConfig)"
+        @test="dashboard.runAction(dashboard.startEditorTempTest)"
       />
 
       <PlanDetailDialog

@@ -259,10 +259,13 @@ export type PlanSummary = {
     cron_expr?: string;
     download_count: number;
     interval?: number;
+    last_run?: HistoryRecord;
     name: string;
     next_run_time?: string;
     running: boolean;
     scheduler_running: boolean;
+    speed: string;
+    speed_bytes: number;
     stats_history?: Array<HistoryRecord> | null;
     threads: number;
     total_bytes: string;
