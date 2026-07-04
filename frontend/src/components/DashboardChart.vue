@@ -1,25 +1,24 @@
 <script setup lang="ts">
-import type { EChartsOption } from 'echarts'
-import { use } from 'echarts/core'
-import { LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import type { ChartConfig } from '@/components/ui/chart'
+import { VisDonut, VisDonutSelectors, VisLine, VisLineSelectors, VisSingleContainer, VisXYContainer, VisAxis } from '@unovis/vue'
 import { computed } from 'vue'
-import VChart from 'vue-echarts'
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  componentToString,
+} from '@/components/ui/chart'
 
-const fallbackColors: Record<string, string> = {
-  '--background': 'oklch(1 0 0)',
-  '--foreground': 'oklch(0.145 0 0)',
-  '--primary': 'oklch(0.205 0 0)',
-  '--muted': 'oklch(0.97 0 0)',
-  '--muted-foreground': 'oklch(0.556 0 0)',
-  '--border': 'oklch(0.922 0 0)',
-  '--chart-1': 'oklch(0.87 0 0)',
-  '--chart-2': 'oklch(0.556 0 0)',
-  '--chart-3': 'oklch(0.439 0 0)',
-  '--chart-4': 'oklch(0.371 0 0)',
-  '--chart-5': 'oklch(0.269 0 0)',
+type LineDatum = {
+  label: string
+  value: number
 }
+
+type DonutDatum = {
+  key: string
+  label: string
+  value: number
+} & Record<string, number | string>
 
 const props = withDefaults(
   defineProps<{
@@ -37,168 +36,157 @@ const props = withDefaults(
     height: 240,
   },
 )
-
-use([CanvasRenderer, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent])
-
-const initOptions = { renderer: 'canvas' } as const
 const hasData = computed(() => props.values.some((value) => value > 0))
 
-function resolveThemeColor(value: string) {
-  if (!value.startsWith('--')) return value
-  const fallback = fallbackColors[value] || fallbackColors['--foreground']
-  if (typeof window === 'undefined') return fallback
-  return window.getComputedStyle(document.documentElement).getPropertyValue(value).trim() || fallback
+function resolveChartColor(value: string) {
+  return value.startsWith('--') ? `var(${value})` : value
 }
 
-function withAlpha(value: string, alpha: number) {
-  const color = resolveThemeColor(value)
-  if (color.startsWith('oklch(') && !color.includes('/')) {
-    return color.replace(/\)$/, ` / ${alpha})`)
-  }
-  return color
-}
+const lineData = computed<LineDatum[]>(() => {
+  return props.labels.map((label, index) => ({
+    label,
+    value: props.values[index] ?? 0,
+  }))
+})
 
-function chartLabels() {
-  if (props.type === 'doughnut' && !hasData.value) {
-    return ['无数据']
-  }
-  return [...props.labels]
-}
-
-function doughnutValues() {
-  if (!hasData.value) {
-    return [1]
-  }
-  return [...props.values]
-}
-
-function doughnutColors() {
-  if (!hasData.value) {
-    return [resolveThemeColor('--muted')]
-  }
-  return props.values.map((_, index) => resolveThemeColor(props.colors[index % props.colors.length]))
-}
-
-const currentOption = computed<EChartsOption>(() => {
-  const mutedForeground = resolveThemeColor('--muted-foreground')
-  const border = withAlpha('--border', 0.65)
-
-  if (props.type === 'line') {
-    return {
-      animation: false,
-      grid: {
-        left: 0,
-        right: 8,
-        top: 8,
-        bottom: 0,
-        containLabel: true,
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: [...props.labels],
-        show: false,
-      },
-      yAxis: {
-        type: 'value',
-        min: 0,
-        splitLine: {
-          lineStyle: {
-            color: border,
-          },
-        },
-        axisLabel: {
-          color: mutedForeground,
-        },
-        axisLine: {
-          lineStyle: {
-            color: border,
-          },
-        },
-      },
-      tooltip: {
-        trigger: 'axis',
-        borderWidth: 0,
-        backgroundColor: resolveThemeColor('--background'),
-        textStyle: {
-          color: resolveThemeColor('--foreground'),
-        },
-      },
-      series: [
-        {
-          name: props.label || '实时速度',
-          id: `${props.chartId}-series`,
-          type: 'line',
-          data: [...props.values],
-          symbol: 'none',
-          smooth: 0.35,
-          lineStyle: {
-            color: resolveThemeColor('--primary'),
-            width: 2,
-          },
-          areaStyle: {
-            color: withAlpha('--primary', 0.12),
-          },
-          emphasis: {
-            disabled: true,
-          },
-        },
-      ],
-    }
-  }
-
+const lineChartConfig = computed<ChartConfig>(() => ({
+  value: {
+    label: props.label || '实时速度',
+    color: resolveChartColor(props.colors[0]),
+  },
+}))
+const lineDomainMax = computed(() => Math.max(1, ...lineData.value.map((item) => item.value)))
+const lineTooltip = computed(() => {
+  return componentToString(lineChartConfig.value, ChartTooltipContent, {
+    indicator: 'line',
+    labelKey: 'label',
+  })
+})
+const lineTooltipTriggers = computed(() => {
+  if (!lineTooltip.value) return {}
   return {
-    animation: false,
-    tooltip: {
-      trigger: 'item',
-      borderWidth: 0,
-      backgroundColor: resolveThemeColor('--background'),
-      textStyle: {
-        color: resolveThemeColor('--foreground'),
-      },
-    },
-    legend: {
-      show: hasData.value,
-      bottom: 0,
-      textStyle: {
-        color: mutedForeground,
-      },
-      itemWidth: 10,
-      itemHeight: 10,
-    },
-    series: [
-      {
-        name: props.label || '占比',
-        id: `${props.chartId}-series`,
-        type: 'pie',
-        radius: ['64%', '100%'],
-        avoidLabelOverlap: true,
-        label: {
-          show: false,
-        },
-        emphasis: {
-          disabled: true,
-        },
-        data: chartLabels().map((name, index) => ({
-          name,
-          value: doughnutValues()[index],
-          itemStyle: {
-            color: doughnutColors()[index],
-          },
-        })),
-      },
-    ],
+    [VisLineSelectors.line]: lineTooltip.value,
+    [VisLineSelectors.lineSelectionHelper]: lineTooltip.value,
   }
 })
+
+const donutLabels = computed(() => {
+  if (!hasData.value) return ['无数据']
+  return [...props.labels]
+})
+const donutValues = computed(() => {
+  if (!hasData.value) return [1]
+  return [...props.values]
+})
+const donutChartConfig = computed<ChartConfig>(() => {
+  return Object.fromEntries(
+    donutLabels.value.map((label, index) => [
+      `segment${index}`,
+      {
+        label,
+        color: hasData.value
+          ? resolveChartColor(props.colors[index % props.colors.length])
+          : 'var(--muted)',
+      },
+    ]),
+  )
+})
+const donutData = computed<DonutDatum[]>(() => {
+  return donutLabels.value.map((label, index) => {
+    const key = `segment${index}`
+    return {
+      key,
+      label,
+      value: donutValues.value[index] ?? 0,
+      [key]: donutValues.value[index] ?? 0,
+    }
+  })
+})
+const donutTooltip = computed(() => {
+  return componentToString(donutChartConfig.value, ChartTooltipContent, {
+    labelKey: 'label',
+  })
+})
+const donutTooltipTriggers = computed(() => {
+  if (!donutTooltip.value) return {}
+  return {
+    [VisDonutSelectors.segment]: donutTooltip.value,
+  }
+})
+
+function lineX(_: LineDatum, index: number) {
+  return index
+}
+
+function lineY(datum: LineDatum) {
+  return datum.value
+}
+
+function formatLineTick(tick: number | Date) {
+  const index = Math.round(Number(tick))
+  return lineData.value[index]?.label ?? ''
+}
+
+function donutValue(datum: DonutDatum) {
+  return Number(datum.value)
+}
+
+function donutColor(datum: DonutDatum) {
+  return `var(--color-${datum.key})`
+}
 </script>
 
 <template>
   <div class="relative w-full" :style="{ height: `${height}px` }">
-    <VChart
-      :id="chartId"
-      :option="currentOption"
-      :init-options="initOptions"
+    <ChartContainer
+      v-if="type === 'line'"
+      :config="lineChartConfig"
       class="h-full w-full"
-    />
+    >
+      <VisXYContainer
+        :data="lineData"
+        :x-domain="[0, Math.max(lineData.length - 1, 0)]"
+        :y-domain="[0, lineDomainMax]"
+      >
+        <VisLine
+          :color="() => 'var(--color-value)'"
+          :line-width="2"
+          :x="lineX"
+          :y="lineY"
+        />
+        <VisAxis
+          :domain-line="false"
+          :grid-line="false"
+          :min-max-ticks-only="true"
+          :tick-format="formatLineTick"
+          :tick-line="false"
+          type="x"
+        />
+        <VisAxis
+          :domain-line="false"
+          :num-ticks="4"
+          :tick-line="false"
+          type="y"
+        />
+        <ChartTooltip :triggers="lineTooltipTriggers" />
+      </VisXYContainer>
+    </ChartContainer>
+
+    <ChartContainer
+      v-else
+      :config="donutChartConfig"
+      class="h-full w-full"
+    >
+      <VisSingleContainer :data="donutData">
+        <ChartTooltip :triggers="donutTooltipTriggers" />
+        <VisDonut
+          :arc-width="26"
+          :central-label="hasData ? (label || 'URL') : '无数据'"
+          :central-sub-label="hasData ? '负载分布' : '暂无下载记录'"
+          :color="donutColor"
+          :value="donutValue"
+        />
+      </VisSingleContainer>
+    </ChartContainer>
   </div>
 </template>
