@@ -4,6 +4,7 @@ import { PieChartIcon } from '@lucide/vue'
 import DashboardChart from '@/components/DashboardChart.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Progress } from '@/components/ui/progress'
 import type { URLUsageStat } from '@/types'
 
@@ -40,7 +41,14 @@ defineProps<{
         </Empty>
         <div v-for="item in stats" :key="item.url" class="grid gap-1.5">
           <div class="flex items-center justify-between gap-3">
-            <span class="truncate text-muted-foreground" :title="item.url">{{ item.url }}</span>
+            <HoverCard :open-delay="120">
+              <HoverCardTrigger as-child>
+                <span class="truncate text-muted-foreground">{{ item.url }}</span>
+              </HoverCardTrigger>
+              <HoverCardContent class="w-96 break-all">
+                {{ item.url }}
+              </HoverCardContent>
+            </HoverCard>
             <span class="shrink-0 text-xs font-semibold">{{ item.percentage.toFixed(1) }}%</span>
           </div>
           <Progress :model-value="Math.max(0, Math.min(100, item.percentage))" />

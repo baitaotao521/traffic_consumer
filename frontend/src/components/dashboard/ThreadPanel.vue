@@ -4,6 +4,7 @@ import { ListIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -50,7 +51,16 @@ defineProps<{
                   {{ row.label }}
                 </Badge>
               </TableCell>
-              <TableCell class="max-w-[320px] truncate" :title="row.url">{{ row.url }}</TableCell>
+              <TableCell class="max-w-[320px]">
+                <HoverCard :open-delay="120">
+                  <HoverCardTrigger as-child>
+                    <span class="block truncate">{{ row.url }}</span>
+                  </HoverCardTrigger>
+                  <HoverCardContent class="w-96 break-all">
+                    {{ row.url }}
+                  </HoverCardContent>
+                </HoverCard>
+              </TableCell>
               <TableCell>--</TableCell>
               <TableCell>
                 <Progress :model-value="row.state === 'active' ? 100 : row.state === 'error' ? 20 : 0" />

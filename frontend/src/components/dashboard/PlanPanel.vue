@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import type { BadgeVariant, PlanSummary } from '@/types'
 
 defineProps<{
@@ -27,7 +28,15 @@ defineEmits<{
     <CardHeader class="border-b py-3">
       <div class="flex items-center justify-between gap-3">
         <CardTitle>运行计划</CardTitle>
-        <span class="truncate text-xs text-muted-foreground" :title="jobDetails">{{ jobDetails || '无' }}</span>
+        <HoverCard v-if="jobDetails" :open-delay="120">
+          <HoverCardTrigger as-child>
+            <span class="truncate text-xs text-muted-foreground">{{ jobDetails }}</span>
+          </HoverCardTrigger>
+          <HoverCardContent class="w-80 break-all">
+            {{ jobDetails }}
+          </HoverCardContent>
+        </HoverCard>
+        <span v-else class="text-xs text-muted-foreground">无</span>
       </div>
     </CardHeader>
     <CardContent class="p-4">
@@ -45,7 +54,14 @@ defineEmits<{
         <Alert v-for="plan in plans" :key="plan.name">
           <AlertTitle class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="truncate font-medium" :title="plan.name">{{ plan.name }}</div>
+              <HoverCard :open-delay="120">
+                <HoverCardTrigger as-child>
+                  <div class="truncate font-medium">{{ plan.name }}</div>
+                </HoverCardTrigger>
+                <HoverCardContent class="w-64 break-all">
+                  {{ plan.name }}
+                </HoverCardContent>
+              </HoverCard>
               <div class="mt-1 text-xs font-normal text-muted-foreground">
                 {{ formatPlanSchedule(plan) }} · {{ formatDateTime(plan.next_run_time) }}
               </div>

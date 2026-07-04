@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
@@ -137,7 +138,14 @@ watch(
                 <div class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                   <Badge :variant="logSourceVariant(entry.source)">{{ logSourceLabel(entry.source) }}</Badge>
                   <span class="shrink-0 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{{ entry.level }}</span>
-                  <span :title="entry.message" :class="['min-w-0 flex-1 truncate', logLevelClass(entry.level)]">{{ entry.message }}</span>
+                  <HoverCard :open-delay="120">
+                    <HoverCardTrigger as-child>
+                      <span :class="['min-w-0 flex-1 truncate', logLevelClass(entry.level)]">{{ entry.message }}</span>
+                    </HoverCardTrigger>
+                    <HoverCardContent class="w-[28rem] break-all font-sans text-sm">
+                      {{ entry.message }}
+                    </HoverCardContent>
+                  </HoverCard>
                 </div>
               </div>
             </div>

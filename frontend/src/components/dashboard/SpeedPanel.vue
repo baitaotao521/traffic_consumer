@@ -4,9 +4,12 @@ import { RefreshCwIcon } from '@lucide/vue'
 import DashboardChart from '@/components/DashboardChart.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Spinner } from '@/components/ui/spinner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 defineProps<{
   labels: string[]
+  refreshing?: boolean
   values: number[]
 }>()
 
@@ -25,9 +28,21 @@ defineEmits<{
             <span class="size-2.5 rounded-full bg-primary" />
             <span class="text-xs text-muted-foreground">Download</span>
           </div>
-          <Button size="icon-sm" variant="ghost" @click="$emit('refresh')">
-            <RefreshCwIcon />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                :aria-label="refreshing ? '刷新中' : '刷新趋势'"
+                :disabled="refreshing"
+                @click="$emit('refresh')"
+              >
+                <Spinner v-if="refreshing" />
+                <RefreshCwIcon v-else />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{{ refreshing ? '刷新中' : '刷新趋势' }}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </CardHeader>

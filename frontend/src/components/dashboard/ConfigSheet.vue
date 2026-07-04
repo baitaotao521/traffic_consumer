@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { Clock3Icon, RotateCcwIcon, SaveIcon, XIcon } from '@lucide/vue'
-import { NumberFieldInput, NumberFieldRoot } from 'reka-ui'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -8,6 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldContent, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  NumberField,
+  NumberFieldContent,
+  NumberFieldDecrement,
+  NumberFieldIncrement,
+  NumberFieldInput,
+} from '@/components/ui/number-field'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
@@ -18,11 +24,13 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { Spinner } from '@/components/ui/spinner'
 import type { ConfigForm } from '@/types'
 
-const numberFieldInputClass = 'dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 disabled:bg-input/50 dark:disabled:bg-input/80 h-8 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 md:text-sm w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50'
+const numberFieldInputClass = 'px-8 text-left'
 
 const integerNumberFieldProps = {
+  min: 0,
   stepSnapping: false,
   formatOptions: {
     maximumFractionDigits: 0,
@@ -30,6 +38,7 @@ const integerNumberFieldProps = {
 }
 
 const decimalNumberFieldProps = {
+  min: 0,
   stepSnapping: false,
   formatOptions: {
     maximumFractionDigits: 3,
@@ -40,6 +49,7 @@ defineProps<{
   cronPreview: string[]
   form: ConfigForm
   formatDateTime: (value?: string) => string
+  saving?: boolean
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
@@ -86,15 +96,18 @@ defineEmits<{
 
                   <div class="grid gap-4 sm:grid-cols-2">
                     <Field>
-                      <FieldLabel for="threads">线程数量</FieldLabel>
-                      <NumberFieldRoot
-                        id="threads"
+                      <FieldLabel>线程数量</FieldLabel>
+                      <NumberField
                         v-model="form.threads"
                         v-bind="integerNumberFieldProps"
-                        class="w-full"
+                        class="w-full gap-0"
                       >
-                        <NumberFieldInput :class="numberFieldInputClass" />
-                      </NumberFieldRoot>
+                        <NumberFieldContent class="w-full">
+                          <NumberFieldDecrement />
+                          <NumberFieldInput :class="numberFieldInputClass" />
+                          <NumberFieldIncrement />
+                        </NumberFieldContent>
+                      </NumberField>
                     </Field>
                     <Field>
                       <FieldLabel for="url-strategy">URL 策略</FieldLabel>
@@ -125,70 +138,88 @@ defineEmits<{
               <CardContent class="py-4">
                 <FieldGroup class="grid gap-4 sm:grid-cols-2">
                   <Field>
-                    <FieldLabel for="limit-speed">限速 (MB/s)</FieldLabel>
-                    <NumberFieldRoot
-                      id="limit-speed"
-                      v-model="form.limit_speed"
-                      v-bind="decimalNumberFieldProps"
-                      class="w-full"
-                    >
-                      <NumberFieldInput :class="numberFieldInputClass" />
-                    </NumberFieldRoot>
-                  </Field>
+                      <FieldLabel>限速 (MB/s)</FieldLabel>
+                      <NumberField
+                        v-model="form.limit_speed"
+                        v-bind="decimalNumberFieldProps"
+                        class="w-full gap-0"
+                      >
+                        <NumberFieldContent class="w-full">
+                          <NumberFieldDecrement />
+                          <NumberFieldInput :class="numberFieldInputClass" />
+                          <NumberFieldIncrement />
+                        </NumberFieldContent>
+                      </NumberField>
+                    </Field>
                   <Field>
-                    <FieldLabel for="traffic-limit">总流量 (MB)</FieldLabel>
-                    <NumberFieldRoot
-                      id="traffic-limit"
+                    <FieldLabel>总流量 (MB)</FieldLabel>
+                    <NumberField
                       v-model="form.traffic_limit"
                       v-bind="integerNumberFieldProps"
-                      class="w-full"
+                      class="w-full gap-0"
                     >
-                      <NumberFieldInput :class="numberFieldInputClass" />
-                    </NumberFieldRoot>
+                      <NumberFieldContent class="w-full">
+                        <NumberFieldDecrement />
+                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldIncrement />
+                      </NumberFieldContent>
+                    </NumberField>
                   </Field>
                   <Field>
-                    <FieldLabel for="duration">时长 (秒)</FieldLabel>
-                    <NumberFieldRoot
-                      id="duration"
+                    <FieldLabel>时长 (秒)</FieldLabel>
+                    <NumberField
                       v-model="form.duration"
                       v-bind="integerNumberFieldProps"
-                      class="w-full"
+                      class="w-full gap-0"
                     >
-                      <NumberFieldInput :class="numberFieldInputClass" />
-                    </NumberFieldRoot>
+                      <NumberFieldContent class="w-full">
+                        <NumberFieldDecrement />
+                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldIncrement />
+                      </NumberFieldContent>
+                    </NumberField>
                   </Field>
                   <Field>
-                    <FieldLabel for="count">下载次数</FieldLabel>
-                    <NumberFieldRoot
-                      id="count"
+                    <FieldLabel>下载次数</FieldLabel>
+                    <NumberField
                       v-model="form.count"
                       v-bind="integerNumberFieldProps"
-                      class="w-full"
+                      class="w-full gap-0"
                     >
-                      <NumberFieldInput :class="numberFieldInputClass" />
-                    </NumberFieldRoot>
+                      <NumberFieldContent class="w-full">
+                        <NumberFieldDecrement />
+                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldIncrement />
+                      </NumberFieldContent>
+                    </NumberField>
                   </Field>
                   <Field>
-                    <FieldLabel for="url-switch-interval">URL 切换时限 (秒)</FieldLabel>
-                    <NumberFieldRoot
-                      id="url-switch-interval"
+                    <FieldLabel>URL 切换时限 (秒)</FieldLabel>
+                    <NumberField
                       v-model="form.url_switch_interval"
                       v-bind="decimalNumberFieldProps"
-                      class="w-full"
+                      class="w-full gap-0"
                     >
-                      <NumberFieldInput :class="numberFieldInputClass" />
-                    </NumberFieldRoot>
+                      <NumberFieldContent class="w-full">
+                        <NumberFieldDecrement />
+                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldIncrement />
+                      </NumberFieldContent>
+                    </NumberField>
                   </Field>
                   <Field>
-                    <FieldLabel for="thread-start-delay">线程启动间隔 (秒)</FieldLabel>
-                    <NumberFieldRoot
-                      id="thread-start-delay"
+                    <FieldLabel>线程启动间隔 (秒)</FieldLabel>
+                    <NumberField
                       v-model="form.thread_start_delay"
                       v-bind="decimalNumberFieldProps"
-                      class="w-full"
+                      class="w-full gap-0"
                     >
-                      <NumberFieldInput :class="numberFieldInputClass" />
-                    </NumberFieldRoot>
+                      <NumberFieldContent class="w-full">
+                        <NumberFieldDecrement />
+                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldIncrement />
+                      </NumberFieldContent>
+                    </NumberField>
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -203,15 +234,18 @@ defineEmits<{
               <CardContent class="grid gap-4 py-4">
                 <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                   <Field>
-                    <FieldLabel for="interval">间隔 (分钟)</FieldLabel>
-                    <NumberFieldRoot
-                      id="interval"
+                    <FieldLabel>间隔 (分钟)</FieldLabel>
+                    <NumberField
                       v-model="form.interval"
                       v-bind="integerNumberFieldProps"
-                      class="w-full"
+                      class="w-full gap-0"
                     >
-                      <NumberFieldInput :class="numberFieldInputClass" />
-                    </NumberFieldRoot>
+                      <NumberFieldContent class="w-full">
+                        <NumberFieldDecrement />
+                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldIncrement />
+                      </NumberFieldContent>
+                    </NumberField>
                   </Field>
                   <Field>
                     <FieldLabel for="cron-expr">Cron 表达式</FieldLabel>
@@ -268,7 +302,7 @@ defineEmits<{
                     </FieldContent>
                     <Switch
                       id="auto-remove-failed-url"
-                      v-model:checked="form.auto_remove_failed_url"
+                      v-model="form.auto_remove_failed_url"
                     />
                   </Field>
 
@@ -278,7 +312,7 @@ defineEmits<{
                     </FieldContent>
                     <Switch
                       id="auto-start"
-                      v-model:checked="form.auto_start"
+                      v-model="form.auto_start"
                     />
                   </Field>
                 </FieldGroup>
@@ -289,12 +323,13 @@ defineEmits<{
       </ScrollArea>
 
       <DialogFooter class="m-0 px-6 py-4">
-        <Button id="reset-config-btn" type="button" variant="outline" @click="$emit('reset')">
+        <Button id="reset-config-btn" type="button" variant="outline" :disabled="saving" @click="$emit('reset')">
           <RotateCcwIcon />
           清空
         </Button>
-        <Button id="save-config-btn" type="button" @click="$emit('save')">
-          <SaveIcon />
+        <Button id="save-config-btn" type="button" :disabled="saving" @click="$emit('save')">
+          <Spinner v-if="saving" />
+          <SaveIcon v-else />
           保存配置
         </Button>
       </DialogFooter>

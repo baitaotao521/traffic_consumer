@@ -11,7 +11,9 @@ import SpeedPanel from '@/components/dashboard/SpeedPanel.vue'
 import ThreadPanel from '@/components/dashboard/ThreadPanel.vue'
 import TopBar from '@/components/dashboard/TopBar.vue'
 import UrlUsagePanel from '@/components/dashboard/UrlUsagePanel.vue'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useDashboard } from '@/composables/useDashboard'
 
 const dashboard = useDashboard()
@@ -25,108 +27,159 @@ const hasScheduler = computed(() => {
 
 <template>
   <main>
-    <TopBar
-      v-model:selected-config-name="dashboard.selectedConfigName.value"
-      :configs="dashboard.configs.value"
-      :has-scheduler="hasScheduler"
-      :is-running="isRunning"
-      :is-stopped="isStopped"
-      :status-label="dashboard.statusLabel.value"
-      :status-variant="dashboard.statusVariant.value"
-      @create-config="dashboard.openCreateConfig"
-      @delete-config="dashboard.requestDeleteSelectedConfig"
-      @open-editor="dashboard.openEditor"
-      @start="dashboard.runAction(dashboard.startSelected)"
-      @start-temp="dashboard.runAction(dashboard.startSelectedTempTest)"
-      @stop="dashboard.runAction(dashboard.stopSelected)"
-      @stop-scheduler="dashboard.runAction(dashboard.stopSelectedScheduler)"
-    />
-
-    <section class="mx-auto flex max-w-[1600px] flex-col gap-6 px-6 py-6">
-      <KpiGrid
-        :current-config="dashboard.currentConfig.value"
-        :download-count="dashboard.status.value.download_count || 0"
-        :speed="dashboard.status.value.speed || '0 B/s'"
-        :total-bytes="dashboard.status.value.total_bytes || '0 B'"
-      />
-
-      <div class="grid items-start gap-6 xl:grid-cols-12">
-        <div class="grid gap-6 xl:col-span-8">
-          <SpeedPanel
-            :labels="dashboard.speedLabels.value"
-            :values="dashboard.speedValues.value"
-            @refresh="dashboard.runAction(dashboard.refreshDashboard)"
-          />
-          <ThreadPanel :thread-counts="dashboard.threadCounts.value" :thread-rows="dashboard.threadRows.value" />
+    <TooltipProvider>
+      <template v-if="dashboard.isDashboardLoading.value">
+        <div class="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
+          <div class="mx-auto flex max-w-[1600px] flex-col gap-3 px-6 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex flex-wrap items-center gap-3">
+              <Skeleton class="h-6 w-36" />
+              <Skeleton class="h-6 w-20" />
+              <Skeleton class="h-9 w-[220px]" />
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Skeleton class="h-9 w-20" />
+              <Skeleton class="h-9 w-24" />
+              <Skeleton class="h-9 w-20" />
+              <Skeleton class="h-9 w-24" />
+              <Skeleton class="h-9 w-24" />
+              <Skeleton class="h-9 w-24" />
+              <Skeleton class="h-9 w-20" />
+            </div>
+          </div>
         </div>
 
-        <div class="grid auto-rows-min content-start gap-6 xl:col-span-4">
-          <UrlUsagePanel
-            :labels="dashboard.urlChartLabels.value"
-            :stats="dashboard.urlStats.value"
-            :values="dashboard.urlChartValues.value"
+        <section class="mx-auto flex max-w-[1600px] flex-col gap-6 px-6 py-6">
+          <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Skeleton v-for="item in 4" :key="`kpi-skeleton-${item}`" class="h-[116px] rounded-xl" />
+          </div>
+
+          <div class="grid items-start gap-6 xl:grid-cols-12">
+            <div class="grid gap-6 xl:col-span-8">
+              <Skeleton class="h-[360px] rounded-xl" />
+              <Skeleton class="h-[420px] rounded-xl" />
+            </div>
+
+            <div class="grid auto-rows-min content-start gap-6 xl:col-span-4">
+              <Skeleton class="h-[360px] rounded-xl" />
+              <Skeleton class="h-[320px] rounded-xl" />
+            </div>
+          </div>
+
+          <Skeleton class="h-[380px] rounded-xl" />
+        </section>
+      </template>
+
+      <template v-else>
+        <TopBar
+          v-model:selected-config-name="dashboard.selectedConfigName.value"
+          :configs="dashboard.configs.value"
+          :has-scheduler="hasScheduler"
+          :is-running="isRunning"
+          :is-stopped="isStopped"
+          :status-label="dashboard.statusLabel.value"
+          :status-variant="dashboard.statusVariant.value"
+          @create-config="dashboard.openCreateConfig"
+          @delete-config="dashboard.requestDeleteSelectedConfig"
+          @open-editor="dashboard.openEditor"
+          @start="dashboard.runAction(dashboard.startSelected)"
+          @start-temp="dashboard.runAction(dashboard.startSelectedTempTest)"
+          @stop="dashboard.runAction(dashboard.stopSelected)"
+          @stop-scheduler="dashboard.runAction(dashboard.stopSelectedScheduler)"
+        />
+
+        <section class="mx-auto flex max-w-[1600px] flex-col gap-6 px-6 py-6">
+          <KpiGrid
+            :current-config="dashboard.currentConfig.value"
+            :download-count="dashboard.status.value.download_count || 0"
+            :speed="dashboard.status.value.speed || '0 B/s'"
+            :total-bytes="dashboard.status.value.total_bytes || '0 B'"
           />
-          <PlanPanel
+
+          <div class="grid items-start gap-6 xl:grid-cols-12">
+            <div class="grid gap-6 xl:col-span-8">
+              <SpeedPanel
+                :labels="dashboard.speedLabels.value"
+                :refreshing="dashboard.isRefreshingDashboard.value"
+                :values="dashboard.speedValues.value"
+                @refresh="dashboard.runAction(dashboard.refreshDashboard)"
+              />
+              <ThreadPanel :thread-counts="dashboard.threadCounts.value" :thread-rows="dashboard.threadRows.value" />
+            </div>
+
+            <div class="grid auto-rows-min content-start gap-6 xl:col-span-4">
+              <UrlUsagePanel
+                :labels="dashboard.urlChartLabels.value"
+                :stats="dashboard.urlStats.value"
+                :values="dashboard.urlChartValues.value"
+              />
+              <PlanPanel
+                :format-date-time="dashboard.formatDateTime"
+                :format-plan-schedule="dashboard.formatPlanSchedule"
+                :job-details="dashboard.scheduler.value.job_details || ''"
+                :plan-state="dashboard.planState"
+                :plans="dashboard.plans.value"
+                @open-plan-detail="dashboard.runAction(() => dashboard.openPlanDetail($event))"
+                @stop-plan="dashboard.requestStopNamedPlan($event)"
+              />
+            </div>
+          </div>
+
+          <LogHistoryPanel
+            v-model:log-enabled="dashboard.logEnabled.value"
             :format-date-time="dashboard.formatDateTime"
-            :format-plan-schedule="dashboard.formatPlanSchedule"
-            :job-details="dashboard.scheduler.value.job_details || ''"
-            :plan-state="dashboard.planState"
+            :log-level-class="dashboard.logLevelClass"
+            :log-level-options="dashboard.logLevelOptions"
+            :log-source-label="dashboard.logSourceLabel"
+            :log-source-options="dashboard.logSourceOptions"
+            :log-source-variant="dashboard.logSourceVariant"
+            :logs="dashboard.logs.value"
             :plans="dashboard.plans.value"
-            @open-plan-detail="dashboard.runAction(() => dashboard.openPlanDetail($event))"
-            @stop-plan="dashboard.requestStopNamedPlan($event)"
+            :selected-log-levels="dashboard.selectedLogLevels.value"
+            :selected-log-sources="dashboard.selectedLogSources.value"
+            @clear-logs="dashboard.clearLogs"
+            @update:selected-log-levels="dashboard.setLogLevels"
+            @update:selected-log-sources="dashboard.setLogSources"
           />
-        </div>
-      </div>
+        </section>
+      </template>
 
-      <LogHistoryPanel
-        v-model:log-enabled="dashboard.logEnabled.value"
-        :format-date-time="dashboard.formatDateTime"
-        :log-level-class="dashboard.logLevelClass"
-        :log-level-options="dashboard.logLevelOptions"
-        :log-source-label="dashboard.logSourceLabel"
-        :log-source-options="dashboard.logSourceOptions"
-        :log-source-variant="dashboard.logSourceVariant"
-        :logs="dashboard.logs.value"
-        :plans="dashboard.plans.value"
-        :selected-log-levels="dashboard.selectedLogLevels.value"
-        :selected-log-sources="dashboard.selectedLogSources.value"
-        @clear-logs="dashboard.clearLogs"
-        @update:selected-log-levels="dashboard.setLogLevels"
-        @update:selected-log-sources="dashboard.setLogSources"
+      <Toaster
+        position="top-right"
+        :expand="false"
+        :mobile-offset="{ top: 76, right: 16, bottom: 16, left: 16 }"
+        :offset="{ top: 84, right: 24, bottom: 24, left: 24 }"
+        :rich-colors="false"
+        :visible-toasts="2"
+        close-button
+        close-button-position="top-right"
       />
-    </section>
 
-    <Toaster
-      position="bottom-right"
-      :expand="false"
-      :rich-colors="true"
-      :visible-toasts="2"
-      close-button
-    />
+      <ConfirmActionDialog
+        v-model:open="dashboard.confirmDialogOpen.value"
+        :confirm-label="dashboard.confirmDialogActionLabel.value"
+        :description="dashboard.confirmDialogDescription.value"
+        :pending="dashboard.isConfirmingAction.value"
+        :title="dashboard.confirmDialogTitle.value"
+        :variant="dashboard.confirmDialogVariant.value"
+        @cancel="dashboard.cancelPendingAction"
+        @confirm="dashboard.confirmPendingAction"
+      />
 
-    <ConfirmActionDialog
-      v-model:open="dashboard.confirmDialogOpen.value"
-      :confirm-label="dashboard.confirmDialogActionLabel.value"
-      :description="dashboard.confirmDialogDescription.value"
-      :title="dashboard.confirmDialogTitle.value"
-      :variant="dashboard.confirmDialogVariant.value"
-      @cancel="dashboard.cancelPendingAction"
-      @confirm="dashboard.confirmPendingAction"
-    />
+      <ConfigSheet
+        v-model:open="dashboard.editorOpen.value"
+        :cron-preview="dashboard.cronPreview.value"
+        :form="dashboard.form"
+        :format-date-time="dashboard.formatDateTime"
+        :saving="dashboard.isSavingConfig.value"
+        @reset="dashboard.resetEditor"
+        @save="dashboard.runAction(dashboard.saveEditorConfig)"
+      />
 
-    <ConfigSheet
-      v-model:open="dashboard.editorOpen.value"
-      :cron-preview="dashboard.cronPreview.value"
-      :form="dashboard.form"
-      :format-date-time="dashboard.formatDateTime"
-      @reset="dashboard.resetEditor"
-      @save="dashboard.runAction(dashboard.saveEditorConfig)"
-    />
-
-    <PlanDetailDialog
-      v-model:open="dashboard.planDialogOpen.value"
-      :format-date-time="dashboard.formatDateTime"
-      :plan-detail="dashboard.selectedPlanDetail.value"
-    />
+      <PlanDetailDialog
+        v-model:open="dashboard.planDialogOpen.value"
+        :format-date-time="dashboard.formatDateTime"
+        :plan-detail="dashboard.selectedPlanDetail.value"
+      />
+    </TooltipProvider>
   </main>
 </template>

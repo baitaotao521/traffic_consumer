@@ -12,15 +12,18 @@ import {
   AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Spinner } from '@/components/ui/spinner'
 
 withDefaults(
   defineProps<{
     confirmLabel: string
     description: string
+    pending?: boolean
     title: string
     variant?: 'default' | 'destructive'
   }>(),
   {
+    pending: false,
     variant: 'default',
   },
 )
@@ -45,13 +48,15 @@ defineEmits<{
         <AlertDialogDescription>{{ description }}</AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
-        <AlertDialogCancel @click="$emit('cancel')">
+        <AlertDialogCancel :disabled="pending" @click="$emit('cancel')">
           取消
         </AlertDialogCancel>
         <AlertDialogAction
           :variant="variant === 'destructive' ? 'destructive' : 'default'"
+          :disabled="pending"
           @click="$emit('confirm')"
         >
+          <Spinner v-if="pending" />
           {{ confirmLabel }}
         </AlertDialogAction>
       </AlertDialogFooter>

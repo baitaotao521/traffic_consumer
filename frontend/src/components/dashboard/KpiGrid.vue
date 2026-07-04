@@ -2,6 +2,7 @@
 import { ActivityIcon, FileTextIcon, GaugeIcon, ListChecksIcon } from '@lucide/vue'
 
 import { Card, CardAction, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 defineProps<{
   currentConfig: string
@@ -57,9 +58,14 @@ defineProps<{
         </CardAction>
       </CardHeader>
       <CardContent>
-        <div id="current-config" class="truncate text-2xl font-bold" :title="currentConfig">
-          {{ currentConfig }}
-        </div>
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <div id="current-config" class="truncate text-2xl font-bold">
+              {{ currentConfig }}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{{ currentConfig }}</TooltipContent>
+        </Tooltip>
       </CardContent>
     </Card>
   </div>
