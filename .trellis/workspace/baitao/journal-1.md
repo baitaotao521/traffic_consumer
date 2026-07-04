@@ -103,3 +103,36 @@ Replaced the dashboard HTTP contract with OpenAPI-first Go endpoints, generated 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Repair scheduler log pipeline
+
+**Date**: 2026-07-05
+**Task**: Repair scheduler log pipeline
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Reworked runtime log sources, activity log filtering, scheduler lifecycle logs, and dashboard realtime log filters for the Go web console.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f32e06f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
