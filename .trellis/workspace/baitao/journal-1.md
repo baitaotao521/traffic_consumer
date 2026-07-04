@@ -136,3 +136,36 @@ Reworked runtime log sources, activity log filtering, scheduler lifecycle logs, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Support multi-config runtime
+
+**Date**: 2026-07-05
+**Task**: Support multi-config runtime
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Implemented Web multi-config runtime management, per-config live metrics, last-run results, config-dialog temp tests, runtime cleanup semantics, persistence locking, tests, generated API types, and static frontend assets.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e3e3e1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
