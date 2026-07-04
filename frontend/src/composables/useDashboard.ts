@@ -38,6 +38,15 @@ import {
 } from '@/domain/dashboard'
 import type { ConfigForm, ConfigPayload, LogEntry, PlanDetailView, PlanSummary } from '@/types'
 
+type AlertVariant = 'default' | 'success' | 'info' | 'warning' | 'destructive'
+
+type AlertOptions = {
+  title: string
+  description?: string
+  detail?: string
+  variant?: AlertVariant
+}
+
 export function useDashboard() {
   const dashboardCache = useDashboardCache()
   const dashboardQuery = useDashboardQuery()
@@ -60,6 +69,10 @@ export function useDashboard() {
   const confirmDialogDescription = ref('')
   const confirmDialogActionLabel = ref('确认')
   const confirmDialogVariant = ref<'default' | 'destructive'>('default')
+  const confirmDialogPendingKey = ref<null | 'deleteConfig' | 'stopPlan'>(null)
+  const eventStreamReady = ref(false)
+  const logStreamReady = ref(false)
+  const refreshingDashboard = ref(false)
   const recentAlertKeys = new Map<string, number>()
   let pendingConfirmAction: null | (() => Promise<void>) = null
 
@@ -91,6 +104,7 @@ export function useDashboard() {
   const currentConfig = computed(() => currentConfigName(status.value, selectedConfigName.value))
   const statusLabelValue = computed(() => statusLabel(status.value))
   const statusVariantValue = computed(() => statusVariant(status.value))
+  const isDashboardLoading = computed(() => dashboardQuery.isPending.value && !dashboardQuery.data.value)
   const threadRows = computed(() => makeThreadRows(status.value))
   const threadCounts = computed(() => makeThreadCounts(threadRows.value))
   const speedValues = computed(() => speedSamples.value.map((sample) => sample.value))
@@ -110,10 +124,31 @@ export function useDashboard() {
   const cronPreviewMutation = useMutation({
     mutationFn: (expression: string) => apiClient.previewCron(expression),
   })
+  const isSavingConfig = computed(() => configMutations.saveConfig.isPending.value)
+  const isDeletingConfig = computed(() => configMutations.deleteConfig.isPending.value)
+  const isStartingRuntime = computed(() => runtimeMutations.startRuntime.isPending.value)
+  const isStartingTempTest = computed(() => runtimeMutations.startTempTest.isPending.value)
+  const isStoppingRuntime = computed(() => runtimeMutations.stopRuntime.isPending.value)
+  const isStoppingScheduler = computed(() => runtimeMutations.stopScheduler.isPending.value)
+  const isStoppingPlan = computed(() => runtimeMutations.stopPlan.isPending.value)
+  const isConfirmingAction = computed(() => {
+    if (confirmDialogPendingKey.value === 'deleteConfig') return isDeletingConfig.value
+    if (confirmDialogPendingKey.value === 'stopPlan') return isStoppingPlan.value
+    return false
+  })
 
-  function pushAlert(message: string, title = '状态更新', variant: 'default' | 'destructive' = 'default', detail?: string) {
+  function mergeAlertLines(...lines: Array<string | undefined>) {
+    return lines
+      .map((line) => line?.trim())
+      .filter((line, index, items): line is string => Boolean(line) && items.indexOf(line) === index)
+      .join('\n') || undefined
+  }
+
+  function pushAlert(options: AlertOptions) {
+    const variant = options.variant || 'default'
+    const description = mergeAlertLines(options.description, options.detail)
     const now = Date.now()
-    const dedupeKey = [variant, title, message, detail || ''].join('::')
+    const dedupeKey = [variant, options.title, description || ''].join('::')
     const dedupeWindow = variant === 'destructive' ? 6000 : 4000
     const lastShownAt = recentAlertKeys.get(dedupeKey)
 
@@ -128,26 +163,55 @@ export function useDashboard() {
     }
 
     recentAlertKeys.set(dedupeKey, now)
-    const description = [title, detail].filter((item) => item && item !== '状态更新').join(' · ') || undefined
+    const toastOptions = { description, duration: variant === 'destructive' ? 8000 : 5000 }
+
     if (variant === 'destructive') {
-      toast.error(message, { description, duration: 8000 })
+      toast.error(options.title, toastOptions)
       return
     }
-    toast(message, { description, duration: 5000 })
+    if (variant === 'warning') {
+      toast.warning(options.title, toastOptions)
+      return
+    }
+    if (variant === 'success') {
+      toast.success(options.title, toastOptions)
+      return
+    }
+    if (variant === 'info') {
+      toast.info(options.title, toastOptions)
+      return
+    }
+    toast(options.title, toastOptions)
   }
 
   function pushError(error: unknown, title = '操作失败') {
     if (error instanceof ApiError) {
-      pushAlert(error.message, title, 'destructive')
+      pushAlert({
+        title,
+        description: error.message,
+        detail: error.details?.[0]?.message,
+        variant: 'destructive',
+      })
       return
     }
-    pushAlert(error instanceof Error ? error.message : '请求失败', title, 'destructive')
+    pushAlert({
+      title,
+      description: error instanceof Error ? error.message : '请求失败',
+      variant: 'destructive',
+    })
   }
 
   function pushCommandMessage(response: { message?: string }) {
     if (response.message) {
-      pushAlert(response.message)
+      pushAlert({ title: response.message, variant: 'success' })
     }
+  }
+
+  async function runRuntimeMutation<T extends { message?: string }>(mutation: () => Promise<T>) {
+    // 运行态操作的用户提示统一使用命令响应，activity 里的 status_update 只保留状态同步职责。
+    const response = await mutation()
+    pushCommandMessage(response)
+    return response
   }
 
   function openConfirmation(options: {
@@ -155,27 +219,37 @@ export function useDashboard() {
     description: string
     actionLabel: string
     variant?: 'default' | 'destructive'
+    pendingKey?: 'deleteConfig' | 'stopPlan'
     action: () => Promise<void>
   }) {
     confirmDialogTitle.value = options.title
     confirmDialogDescription.value = options.description
     confirmDialogActionLabel.value = options.actionLabel
     confirmDialogVariant.value = options.variant || 'default'
+    confirmDialogPendingKey.value = options.pendingKey || null
     pendingConfirmAction = options.action
     confirmDialogOpen.value = true
   }
 
   function cancelPendingAction() {
+    if (isConfirmingAction.value) return
     pendingConfirmAction = null
+    confirmDialogPendingKey.value = null
     confirmDialogOpen.value = false
   }
 
   async function confirmPendingAction() {
     const action = pendingConfirmAction
-    pendingConfirmAction = null
-    confirmDialogOpen.value = false
     if (!action) return
-    await runAction(action)
+    try {
+      await action()
+      confirmDialogOpen.value = false
+    } catch (error) {
+      pushError(error)
+    } finally {
+      pendingConfirmAction = null
+      confirmDialogPendingKey.value = null
+    }
   }
 
   function clearLogs() {
@@ -199,7 +273,13 @@ export function useDashboard() {
   }
 
   async function refreshDashboard() {
-    await dashboardQuery.refetch()
+    if (refreshingDashboard.value) return
+    refreshingDashboard.value = true
+    try {
+      await dashboardQuery.refetch()
+    } finally {
+      refreshingDashboard.value = false
+    }
   }
 
   async function loadConfigDetail(name: string) {
@@ -222,7 +302,7 @@ export function useDashboard() {
 
   function ensureSelectedConfig(): ConfigPayload | null {
     if (!selectedConfigName.value || !selectedConfigDetail.value) {
-      pushAlert('请选择运行配置。', '提示')
+      pushAlert({ title: '请选择运行配置。', variant: 'warning' })
       return null
     }
     return configWithName(selectedConfigDetail.value, selectedConfigName.value)
@@ -231,25 +311,21 @@ export function useDashboard() {
   async function startSelected() {
     const payload = ensureSelectedConfig()
     if (!payload) return
-    const response = await runtimeMutations.startRuntime.mutateAsync(payload)
-    pushCommandMessage(response)
+    await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(payload))
   }
 
   async function startSelectedTempTest() {
     const payload = ensureSelectedConfig()
     if (!payload) return
-    const response = await runtimeMutations.startTempTest.mutateAsync(payload)
-    pushCommandMessage(response)
+    await runRuntimeMutation(() => runtimeMutations.startTempTest.mutateAsync(payload))
   }
 
   async function stopSelected() {
-    const response = await runtimeMutations.stopRuntime.mutateAsync(undefined)
-    pushCommandMessage(response)
+    await runRuntimeMutation(() => runtimeMutations.stopRuntime.mutateAsync(undefined))
   }
 
   async function stopSelectedScheduler() {
-    const response = await runtimeMutations.stopScheduler.mutateAsync(undefined)
-    pushCommandMessage(response)
+    await runRuntimeMutation(() => runtimeMutations.stopScheduler.mutateAsync(undefined))
   }
 
   function openCreateConfig() {
@@ -272,7 +348,7 @@ export function useDashboard() {
     const payload = configFromForm(form)
     const name = payload.name?.trim() || ''
     if (!name) {
-      pushAlert('请填写配置名称。', '提示')
+      pushAlert({ title: '请填写配置名称。', variant: 'warning' })
       return
     }
     const response = await configMutations.saveConfig.mutateAsync({ name, config: payload })
@@ -293,7 +369,7 @@ export function useDashboard() {
   function requestDeleteSelectedConfig() {
     const target = selectedConfigName.value
     if (!target) {
-      pushAlert('请选择配置。', '提示')
+      pushAlert({ title: '请选择配置。', variant: 'warning' })
       return
     }
     openConfirmation({
@@ -301,6 +377,7 @@ export function useDashboard() {
       description: `配置 "${target}" 会从当前列表中移除。`,
       actionLabel: '删除',
       variant: 'destructive',
+      pendingKey: 'deleteConfig',
       action: () => deleteSelectedConfig(target),
     })
   }
@@ -312,8 +389,7 @@ export function useDashboard() {
   }
 
   async function stopNamedPlan(plan: PlanSummary) {
-    const response = await runtimeMutations.stopPlan.mutateAsync(plan.name)
-    pushCommandMessage(response)
+    await runRuntimeMutation(() => runtimeMutations.stopPlan.mutateAsync(plan.name))
   }
 
   function requestStopNamedPlan(plan: PlanSummary) {
@@ -322,6 +398,7 @@ export function useDashboard() {
       description: `计划 "${plan.name}" 会立即停止当前执行和后续调度。`,
       actionLabel: '停止',
       variant: 'destructive',
+      pendingKey: 'stopPlan',
       action: () => stopNamedPlan(plan),
     })
   }
@@ -369,7 +446,10 @@ export function useDashboard() {
   watch(() => activityQuery.data.value, async (activity) => {
     if (!activity) return
 
-    if (logEnabled.value) {
+    const shouldConsumeLogs = logEnabled.value && logStreamReady.value
+    const shouldConsumeEvents = eventStreamReady.value
+
+    if (shouldConsumeLogs) {
       logs.value = [...logs.value, ...(activity.logs || [])].slice(-200)
     }
     if (typeof activity.log_cursor === 'number') {
@@ -379,6 +459,17 @@ export function useDashboard() {
       eventCursor.value = activity.event_cursor
     }
 
+    // 首次接入活动流只同步最新游标，避免把页面打开前积压的事件和日志全部重放成“新提示”。
+    if (logEnabled.value && !logStreamReady.value) {
+      logStreamReady.value = true
+    }
+    if (!eventStreamReady.value) {
+      eventStreamReady.value = true
+    }
+    if (!shouldConsumeEvents) {
+      return
+    }
+
     let shouldRefreshDashboard = false
     for (const event of activity.events || []) {
       const projection = projectActivityEvent(event)
@@ -386,7 +477,7 @@ export function useDashboard() {
         shouldRefreshDashboard = true
       }
       if (projection.toast) {
-        pushAlert(projection.toast.message, projection.toast.title, projection.toast.variant, projection.toast.detail)
+        pushAlert(projection.toast)
       }
     }
 
@@ -396,7 +487,16 @@ export function useDashboard() {
   })
 
   watch(logEnabled, async (enabled) => {
-    if (!enabled) return
+    if (!enabled) {
+      logStreamReady.value = false
+      clearLogs()
+      return
+    }
+
+    // 实时日志重新开启后从当前时刻开始接收，不补拉关闭期间的旧日志。
+    clearLogs()
+    logCursor.value = 0
+    logStreamReady.value = false
     await activityQuery.refetch()
   })
 
@@ -405,6 +505,7 @@ export function useDashboard() {
     async () => {
       clearLogs()
       logCursor.value = 0
+      logStreamReady.value = false
       if (logEnabled.value) {
         await activityQuery.refetch()
       }
@@ -447,6 +548,16 @@ export function useDashboard() {
     configs,
     cronPreview,
     currentConfig,
+    isConfirmingAction,
+    isDashboardLoading,
+    isDeletingConfig,
+    isRefreshingDashboard: refreshingDashboard,
+    isSavingConfig,
+    isStartingRuntime,
+    isStartingTempTest,
+    isStoppingPlan,
+    isStoppingRuntime,
+    isStoppingScheduler,
     editorOpen,
     form,
     formatDateTime,

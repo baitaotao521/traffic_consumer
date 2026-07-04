@@ -282,28 +282,63 @@ export function normalizeFilterSelection(options: LogFilterOption[], values: str
   return ordered.length ? ordered : fallback
 }
 
+export type ActivityToast = {
+  title: string
+  description?: string
+  variant: 'default' | 'success' | 'info' | 'warning' | 'destructive'
+}
+
 export type ActivityProjection = {
   refreshDashboard: boolean
-  toast?: {
-    message: string
-    title: string
-    variant: 'default' | 'destructive'
-    detail?: string
-  }
+  toast?: ActivityToast
+}
+
+function activityToastVariant(event: Event): ActivityToast['variant'] {
+  if (event.type === 'error' || event.variant === 'danger' || event.level === 'error') return 'destructive'
+  if (event.type === 'download_failure' || event.event_type === 'invalid_url' || event.level === 'warning') return 'warning'
+  if (event.variant === 'success' || event.level === 'success') return 'success'
+  if (event.variant === 'info') return 'info'
+  return 'default'
+}
+
+function activityToastTitle(event: Event, variant: ActivityToast['variant']): string {
+  const title = event.title?.trim()
+  if (title) return title
+
+  const message = event.message?.trim()
+  if (message) return message
+
+  if (variant === 'destructive') return '操作失败'
+  if (variant === 'warning') return '需要处理'
+  if (variant === 'success') return '处理完成'
+  return '状态更新'
+}
+
+function activityToastDescription(event: Event, title: string): string | undefined {
+  // 活动提示只保留补充信息，避免把标题和正文原样重复两遍。
+  const lines = [event.message?.trim(), event.error?.trim()]
+    .filter((line, index, items): line is string => Boolean(line) && line !== title && items.indexOf(line) === index)
+
+  return lines.length ? lines.join('\n') : undefined
 }
 
 export function projectActivityEvent(event: Event): ActivityProjection {
   if (event.type === 'history_update') {
     return { refreshDashboard: true }
   }
-  if (['status_update', 'error', 'download_failure'].includes(event.type) || event.event_type === 'invalid_url') {
+  if (event.type === 'status_update') {
+    // 运行态成功提示统一走命令响应，避免和轮询活动里的状态事件重复弹出。
+    return { refreshDashboard: false }
+  }
+  if (['error', 'download_failure'].includes(event.type) || event.event_type === 'invalid_url') {
+    const variant = activityToastVariant(event)
+    const title = activityToastTitle(event, variant)
     return {
       refreshDashboard: false,
       toast: {
-        message: event.message || '发生未知事件。',
-        title: event.title || (event.type === 'error' ? '操作失败' : '状态更新'),
-        variant: event.type === 'error' || event.variant === 'danger' ? 'destructive' : 'default',
-        detail: event.error,
+        title,
+        description: activityToastDescription(event, title),
+        variant,
       },
     }
   }
