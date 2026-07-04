@@ -79,8 +79,20 @@ async function unwrap<T>(request: Promise<GeneratedResult<T>>): Promise<T> {
 }
 
 export const apiClient = {
-  activity(afterLog: number, afterEvent: number): Promise<ActivityResponse> {
-    return unwrap(getActivity({ query: { after_log: afterLog, after_event: afterEvent } }))
+  activity(
+    afterLog: number,
+    afterEvent: number,
+    options: { includeLogs: boolean; logLevels: string[]; logSources: string[] },
+  ): Promise<ActivityResponse> {
+    return unwrap(getActivity({
+      query: {
+        after_log: afterLog,
+        after_event: afterEvent,
+        include_logs: options.includeLogs ? 'true' : 'false',
+        log_levels: options.logLevels.join(','),
+        log_sources: options.logSources.join(','),
+      },
+    }))
   },
 
   dashboard(): Promise<DashboardResponse> {

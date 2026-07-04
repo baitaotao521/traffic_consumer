@@ -82,9 +82,17 @@ const hasScheduler = computed(() => {
         v-model:log-enabled="dashboard.logEnabled.value"
         :format-date-time="dashboard.formatDateTime"
         :log-level-class="dashboard.logLevelClass"
+        :log-level-options="dashboard.logLevelOptions"
+        :log-source-label="dashboard.logSourceLabel"
+        :log-source-options="dashboard.logSourceOptions"
+        :log-source-variant="dashboard.logSourceVariant"
         :logs="dashboard.logs.value"
         :plans="dashboard.plans.value"
+        :selected-log-levels="dashboard.selectedLogLevels.value"
+        :selected-log-sources="dashboard.selectedLogSources.value"
         @clear-logs="dashboard.clearLogs"
+        @update:selected-log-levels="dashboard.setLogLevels"
+        @update:selected-log-sources="dashboard.setLogSources"
       />
     </section>
 

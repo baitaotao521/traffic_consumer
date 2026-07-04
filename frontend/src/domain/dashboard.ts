@@ -242,8 +242,44 @@ export function planState(plan: PlanSummary): { label: string; variant: BadgeVar
 export function logLevelClass(level: string) {
   if (level === 'error') return 'text-destructive'
   if (level === 'warning') return 'text-primary'
-  if (level === 'success') return ''
+  if (level === 'success') return 'text-emerald-600'
   return 'text-muted-foreground'
+}
+
+export type LogFilterOption = {
+  value: string
+  label: string
+}
+
+export const logSourceOptions: LogFilterOption[] = [
+  { value: 'scheduler', label: '调度' },
+  { value: 'runtime', label: '运行' },
+  { value: 'download', label: '下载' },
+]
+
+export const logLevelOptions: LogFilterOption[] = [
+  { value: 'info', label: '信息' },
+  { value: 'warning', label: '警告' },
+  { value: 'error', label: '错误' },
+  { value: 'success', label: '完成' },
+]
+
+export function logSourceLabel(source?: string): string {
+  if (source === 'scheduler') return '调度'
+  if (source === 'download') return '下载'
+  return '运行'
+}
+
+export function logSourceVariant(source?: string): BadgeVariant {
+  if (source === 'scheduler') return 'secondary'
+  if (source === 'download') return 'default'
+  return 'outline'
+}
+
+export function normalizeFilterSelection(options: LogFilterOption[], values: string[], fallback: string[]): string[] {
+  const requested = new Set(values)
+  const ordered = options.map((option) => option.value).filter((value) => requested.has(value))
+  return ordered.length ? ordered : fallback
 }
 
 export type ActivityProjection = {

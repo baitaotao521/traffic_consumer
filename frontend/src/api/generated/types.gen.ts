@@ -232,6 +232,7 @@ export type LogEntry = {
     level: string;
     message: string;
     seq: number;
+    source: string;
     timestamp: string;
 };
 
@@ -473,6 +474,18 @@ export type GetActivityData = {
          * 已消费的最后一个事件游标
          */
         after_event?: number;
+        /**
+         * 是否返回日志并推进日志游标
+         */
+        include_logs?: string;
+        /**
+         * 逗号分隔的日志来源筛选
+         */
+        log_sources?: string;
+        /**
+         * 逗号分隔的日志级别筛选
+         */
+        log_levels?: string;
     };
     url: '/activity';
 };

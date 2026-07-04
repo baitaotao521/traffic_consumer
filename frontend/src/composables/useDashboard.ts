@@ -19,7 +19,11 @@ import {
   emptyDashboard,
   formatDateTime,
   formatPlanSchedule,
+  logLevelOptions,
   logLevelClass,
+  logSourceLabel,
+  logSourceOptions,
+  logSourceVariant,
   normalizeDashboard,
   normalizePlanDetail,
   parseSpeed,
@@ -30,8 +34,9 @@ import {
   statusVariant,
   threadCounts as makeThreadCounts,
   threadRows as makeThreadRows,
+  normalizeFilterSelection,
 } from '@/domain/dashboard'
-import type { ConfigForm, ConfigPayload, PlanDetailView, PlanSummary } from '@/types'
+import type { ConfigForm, ConfigPayload, LogEntry, PlanDetailView, PlanSummary } from '@/types'
 
 export function useDashboard() {
   const dashboardCache = useDashboardCache()
@@ -39,8 +44,10 @@ export function useDashboard() {
 
   const selectedConfigName = ref('')
   const selectedConfigDetail = ref<ConfigPayload | null>(null)
-  const logs = ref<Array<{ seq: number; timestamp: string; level: string; message: string }>>([])
+  const logs = ref<LogEntry[]>([])
   const logEnabled = ref(false)
+  const selectedLogSources = ref(logSourceOptions.map((option) => option.value))
+  const selectedLogLevels = ref(logLevelOptions.map((option) => option.value))
   const logCursor = ref(0)
   const eventCursor = ref(0)
   const editorOpen = ref(false)
@@ -91,7 +98,13 @@ export function useDashboard() {
   const urlChartValues = computed(() => urlStats.value.map((item) => item.count))
   const urlChartLabels = computed(() => urlStats.value.map((item, index) => item.url || `链接 ${index + 1}`))
 
-  const activityQuery = useActivityQuery({ afterLog: logCursor, afterEvent: eventCursor })
+  const activityQuery = useActivityQuery({
+    afterLog: logCursor,
+    afterEvent: eventCursor,
+    includeLogs: logEnabled,
+    logLevels: selectedLogLevels,
+    logSources: selectedLogSources,
+  })
   const configMutations = useConfigCommandMutations()
   const runtimeMutations = useRuntimeCommandMutations()
   const cronPreviewMutation = useMutation({
@@ -167,6 +180,22 @@ export function useDashboard() {
 
   function clearLogs() {
     logs.value = []
+  }
+
+  function setLogSources(values: string[]) {
+    // 空选择会让后端回退到“不过滤”，用户看到的反而是全量日志，所以这里保留上一组有效来源。
+    const nextValues = normalizeFilterSelection(logSourceOptions, values, selectedLogSources.value)
+    if (nextValues.join(',') !== selectedLogSources.value.join(',')) {
+      selectedLogSources.value = nextValues
+    }
+  }
+
+  function setLogLevels(values: string[]) {
+    // 空选择同样会把级别筛选放空成“全部返回”，这里继续沿用当前级别集合。
+    const nextValues = normalizeFilterSelection(logLevelOptions, values, selectedLogLevels.value)
+    if (nextValues.join(',') !== selectedLogLevels.value.join(',')) {
+      selectedLogLevels.value = nextValues
+    }
   }
 
   async function refreshDashboard() {
@@ -343,8 +372,12 @@ export function useDashboard() {
     if (logEnabled.value) {
       logs.value = [...logs.value, ...(activity.logs || [])].slice(-200)
     }
-    logCursor.value = Number(activity.log_cursor || logCursor.value)
-    eventCursor.value = Number(activity.event_cursor || eventCursor.value)
+    if (typeof activity.log_cursor === 'number') {
+      logCursor.value = activity.log_cursor
+    }
+    if (typeof activity.event_cursor === 'number') {
+      eventCursor.value = activity.event_cursor
+    }
 
     let shouldRefreshDashboard = false
     for (const event of activity.events || []) {
@@ -361,6 +394,22 @@ export function useDashboard() {
       await dashboardCache.invalidateDashboard()
     }
   })
+
+  watch(logEnabled, async (enabled) => {
+    if (!enabled) return
+    await activityQuery.refetch()
+  })
+
+  watch(
+    () => [selectedLogSources.value.join(','), selectedLogLevels.value.join(',')],
+    async () => {
+      clearLogs()
+      logCursor.value = 0
+      if (logEnabled.value) {
+        await activityQuery.refetch()
+      }
+    },
+  )
 
   watch(
     () => form.cron_expr,
@@ -404,6 +453,10 @@ export function useDashboard() {
     formatPlanSchedule,
     logEnabled,
     logLevelClass,
+    logLevelOptions,
+    logSourceLabel,
+    logSourceOptions,
+    logSourceVariant,
     logs,
     openCreateConfig,
     openEditor,
@@ -417,6 +470,8 @@ export function useDashboard() {
     resetEditor,
     saveEditorConfig,
     scheduler,
+    selectedLogLevels,
+    selectedLogSources,
     selectedConfigName,
     selectedPlanDetail,
     speedLabels,
@@ -430,6 +485,8 @@ export function useDashboard() {
     stopNamedPlan,
     stopSelected,
     stopSelectedScheduler,
+    setLogLevels,
+    setLogSources,
     threadCounts,
     threadRows,
     urlChartLabels,

@@ -78,23 +78,27 @@ func New(paths config.Paths) *Manager {
 	}
 }
 
-// AddLog 写入日志缓冲，前端通过 HTTP 增量轮询。
-func (m *Manager) AddLog(configName, level, message, color string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.logSeq++
+// AddLog 写入日志缓冲并同步打印到后端控制台，确保前后端看到的是同一条业务日志。
+func (m *Manager) AddLog(configName string, source model.LogSource, level, message, color string) {
 	entry := model.LogEntry{
-		Seq:       m.logSeq,
 		Timestamp: time.Now().Format(time.RFC3339),
-		Level:     firstNonEmpty(level, "info"),
+		Source:    model.NormalizeLogSource(string(source)),
+		Level:     model.NormalizeLogLevel(level),
 		Message:   stripANSI(message),
 		Color:     color,
 		Config:    configName,
 	}
+
+	m.mu.Lock()
+	m.logSeq++
+	entry.Seq = m.logSeq
 	m.logs = append(m.logs, entry)
 	if len(m.logs) > 500 {
 		m.logs = m.logs[len(m.logs)-500:]
 	}
+	m.mu.Unlock()
+
+	fmt.Println(formatConsoleLog(entry))
 }
 
 // AddEvent 写入通知缓冲，替代旧 Socket.IO 的 invalid_url/history_update/error 推送。
@@ -112,17 +116,33 @@ func (m *Manager) AddEvent(event model.Event) {
 	}
 }
 
-// LogsSince 返回指定序号之后的日志。
-func (m *Manager) LogsSince(seq int64) ([]model.LogEntry, int64) {
+// LogsSince 返回指定序号之后、符合来源和级别筛选条件的日志。
+func (m *Manager) LogsSince(seq int64, sources []model.LogSource, levels []string) ([]model.LogEntry, int64) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	sourceFilter := make(map[model.LogSource]bool, len(sources))
+	for _, source := range sources {
+		sourceFilter[model.NormalizeLogSource(string(source))] = true
+	}
+	levelFilter := make(map[string]bool, len(levels))
+	for _, level := range levels {
+		levelFilter[model.NormalizeLogLevel(level)] = true
+	}
 	result := make([]model.LogEntry, 0)
 	for _, entry := range m.logs {
-		if entry.Seq > seq {
+		if entry.Seq > seq && matchesLogFilter(entry, sourceFilter, levelFilter) {
 			result = append(result, entry)
 		}
 	}
 	return result, m.logSeq
+}
+
+func (m *Manager) addRuntimeLog(configName, level, message string) {
+	m.AddLog(configName, model.LogSourceRuntime, level, message, colorForLevel(level))
+}
+
+func (m *Manager) addSchedulerLog(configName, level, message string) {
+	m.AddLog(configName, model.LogSourceScheduler, level, message, colorForLevel(level))
 }
 
 // EventsSince 返回指定序号之后的通知。
@@ -162,9 +182,11 @@ func (m *Manager) LaunchAutoStartConfigs() bool {
 				m.AddEvent(errorEvent(err.Error()))
 				continue
 			}
+			m.addRuntimeLog(name, "info", "服务启动时已恢复等待调度的配置。")
 			scheduled = append(scheduled, name)
 		} else {
 			item.Consumer.StartAsync()
+			m.addRuntimeLog(name, "info", "服务启动时已恢复下载任务。")
 			startedNow = append(startedNow, name)
 		}
 		m.mu.Lock()
@@ -204,6 +226,7 @@ func (m *Manager) StartConsumer(cfg model.Config) (model.StatusPayload, error) {
 	// Web 定时任务启动后承载 goroutine 可能已经退出，但 cron 仍在后台。
 	// 手动启动新配置前必须停掉旧计划，避免用户看着已切配置，旧计划却偷偷下载。
 	if snapshot.hasActiveScheduler {
+		m.addRuntimeLog("", "info", "检测到已有等待中的计划，切换配置前会先停止旧调度。")
 		m.StopAll()
 	}
 	name := storage.NormalizeConfigName(firstNonEmpty(cfg.ConfigName, cfg.Name))
@@ -215,8 +238,10 @@ func (m *Manager) StartConsumer(cfg model.Config) (model.StatusPayload, error) {
 		if err := m.startScheduler(item); err != nil {
 			return model.StatusPayload{}, err
 		}
+		m.addRuntimeLog(name, "info", "配置已切换到等待调度状态。")
 	} else {
 		item.Consumer.StartAsync()
+		m.addRuntimeLog(name, "info", "配置已启动下载任务。")
 	}
 	m.mu.Lock()
 	m.primary = item
@@ -249,6 +274,7 @@ func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
 			return model.StatusPayload{}, fmt.Errorf("当前等待中的计划是 \"%s\"，请先切换到同名配置或停止该计划。", scheduled.Name)
 		}
 		resume = &ResumeTarget{Name: name, Config: scheduled.Config, AutoStart: scheduled.AutoStart}
+		m.addRuntimeLog(name, "info", "临时测试开始前已暂停同名等待中的计划，测试结束后会自动恢复。")
 		m.StopRuntimeConfig(name)
 	}
 
@@ -276,6 +302,7 @@ func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
 	go m.cleanupTempWhenDone(item, done)
 
 	message := fmt.Sprintf("已开始临时测试验证配置 \"%s\"，本次最多下载 %d MB。", name, limit)
+	m.addRuntimeLog(name, "info", message)
 	m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "success", Message: message, Config: name})
 	return model.StatusPayload{Running: true, State: model.StateRunning, Config: name, Message: message, ThreadStatus: map[int]string{}, URLUsageStats: []model.URLUsageStat{}}, nil
 }
@@ -283,6 +310,19 @@ func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
 // StopAll 停止所有下载与调度。
 func (m *Manager) StopAll() bool {
 	items := m.items()
+	stoppedSchedules := []string{}
+	stoppedRuns := []string{}
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		if item.Cron != nil {
+			stoppedSchedules = append(stoppedSchedules, item.Name)
+		}
+		if item.Consumer.IsActive() {
+			stoppedRuns = append(stoppedRuns, item.Name)
+		}
+	}
 	m.mu.Lock()
 	m.primary = nil
 	m.auto = nil
@@ -295,6 +335,12 @@ func (m *Manager) StopAll() bool {
 		}
 	}
 	if stopped {
+		if len(stoppedSchedules) > 0 {
+			m.addSchedulerLog("", "info", fmt.Sprintf("已停止调度计划：%s。", strings.Join(stoppedSchedules, ", ")))
+		}
+		if len(stoppedRuns) > 0 {
+			m.addRuntimeLog("", "info", fmt.Sprintf("已停止运行任务：%s。", strings.Join(stoppedRuns, ", ")))
+		}
 		m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "secondary", Message: "流量消耗器已停止。"})
 	}
 	return stopped
@@ -317,12 +363,26 @@ func (m *Manager) StopRuntimeConfig(name string) bool {
 	m.mu.Unlock()
 
 	stopped := false
+	stoppedScheduler := false
+	stoppedDownload := false
 	for _, item := range targets {
+		if item != nil && item.Cron != nil {
+			stoppedScheduler = true
+		}
+		if item != nil && item.Consumer.IsActive() {
+			stoppedDownload = true
+		}
 		if stopItem(item) {
 			stopped = true
 		}
 	}
 	if len(targets) > 0 || stopped {
+		if stoppedScheduler {
+			m.addSchedulerLog(name, "info", fmt.Sprintf("计划 \"%s\" 的调度已停止。", name))
+		}
+		if stoppedDownload {
+			m.addRuntimeLog(name, "info", fmt.Sprintf("计划 \"%s\" 的运行任务已停止。", name))
+		}
 		m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "secondary", Message: fmt.Sprintf("计划 \"%s\" 已停止。", name), Config: name})
 	}
 	return len(targets) > 0 || stopped
@@ -468,7 +528,7 @@ func (m *Manager) createItem(name string, cfg model.Config, temp bool, resume *R
 	cfg = cfg.Normalize(config.DefaultURLs, name, cfg.URLs == nil)
 	name = cfg.ConfigName
 	logger := func(level, message, color string) {
-		m.AddLog(name, level, message, color)
+		m.AddLog(name, model.LogSourceDownload, level, message, color)
 	}
 	eventer := func(event model.Event) {
 		event.Config = name
@@ -488,14 +548,20 @@ func (m *Manager) startScheduler(item *Item) error {
 		return nil
 	}
 	id, err := c.AddFunc(spec, func() {
-		item.Consumer.RunOnce(context.Background())
+		m.runScheduledItem(item, context.Background())
 	})
 	if err != nil {
 		return err
 	}
 	item.Cron = c
 	item.EntryID = id
+	if item.Config.CronExpr != "" {
+		m.addSchedulerLog(item.Name, "info", fmt.Sprintf("已登记 Cron 调度：%s。", item.Config.CronExpr))
+	} else if item.Config.Interval != nil {
+		m.addSchedulerLog(item.Name, "info", fmt.Sprintf("已登记间隔调度：每 %d 分钟执行一次。", *item.Config.Interval))
+	}
 	c.Start()
+	m.addSchedulerLog(item.Name, "info", fmt.Sprintf("调度器已启动，下一次执行时间 %s。", m.describeNextRun(item)))
 	return nil
 }
 
@@ -516,6 +582,7 @@ func (m *Manager) cleanupTempWhenDone(item *Item, done <-chan struct{}) {
 	if resume == nil {
 		return
 	}
+	m.addSchedulerLog(resume.Name, "info", "临时测试已结束，正在恢复原计划调度。")
 	restored, err := m.createItem(resume.Name, resume.Config, false, nil)
 	if err != nil {
 		m.AddEvent(errorEvent(err.Error()))
@@ -593,15 +660,26 @@ func (i *Item) isScheduled() bool {
 	return i.Config.CronExpr != "" || i.Config.Interval != nil && *i.Config.Interval > 0
 }
 
+func (m *Manager) runScheduledItem(item *Item, ctx context.Context) {
+	m.addSchedulerLog(item.Name, "info", "计划任务已触发执行。")
+	item.Consumer.RunOnce(ctx)
+	m.addSchedulerLog(item.Name, "info", fmt.Sprintf("计划任务执行完成，下一次执行时间 %s。", m.describeNextRun(item)))
+}
+
 func (i *Item) nextRun() string {
-	if i.Cron == nil {
+	next := i.nextRunAt()
+	if next.IsZero() {
 		return ""
+	}
+	return next.Format(time.RFC3339)
+}
+
+func (i *Item) nextRunAt() time.Time {
+	if i.Cron == nil {
+		return time.Time{}
 	}
 	entry := i.Cron.Entry(i.EntryID)
-	if entry.Next.IsZero() {
-		return ""
-	}
-	return entry.Next.Format(time.RFC3339)
+	return entry.Next
 }
 
 func stopItem(item *Item) bool {
@@ -663,6 +741,16 @@ func percent(count, total int64) float64 {
 	return float64(count) / float64(total) * 100
 }
 
+func matchesLogFilter(entry model.LogEntry, sources map[model.LogSource]bool, levels map[string]bool) bool {
+	if len(sources) > 0 && !sources[entry.Source] {
+		return false
+	}
+	if len(levels) > 0 && !levels[model.NormalizeLogLevel(entry.Level)] {
+		return false
+	}
+	return true
+}
+
 func errorEvent(message string) model.Event {
 	return model.Event{Type: "error", Title: "操作失败：", Variant: "danger", Message: message}
 }
@@ -685,6 +773,40 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func colorForLevel(level string) string {
+	switch model.NormalizeLogLevel(level) {
+	case "error":
+		return "#dc3545"
+	case "warning":
+		return "#ffc107"
+	case "success":
+		return "#198754"
+	default:
+		return "#0dcaf0"
+	}
+}
+
+func formatConsoleLog(entry model.LogEntry) string {
+	parts := []string{
+		"[" + entry.Timestamp + "]",
+		"[" + string(entry.Source) + "]",
+		"[" + entry.Level + "]",
+	}
+	if entry.Config != "" {
+		parts = append(parts, "["+entry.Config+"]")
+	}
+	parts = append(parts, entry.Message)
+	return strings.Join(parts, " ")
+}
+
+func (m *Manager) describeNextRun(item *Item) string {
+	next := item.nextRunAt()
+	if next.IsZero() {
+		return "暂无后续触发时间"
+	}
+	return next.In(m.location).Format("2006-01-02 15:04:05")
 }
 
 func stripANSI(text string) string {

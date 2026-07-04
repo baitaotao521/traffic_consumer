@@ -115,10 +115,11 @@ func TestPreviewCronReturnsFiveRuns(t *testing.T) {
 
 func TestActivityUsesSeparateLogAndEventCursors(t *testing.T) {
 	server := newTestServer(t)
-	server.Manager.AddLog("demo", "info", "hello", "")
+	server.Manager.AddLog("demo", model.LogSourceScheduler, "info", "hello", "")
+	server.Manager.AddLog("demo", model.LogSourceDownload, "error", "boom", "")
 	server.Manager.AddEvent(model.Event{Type: "status_update", Message: "done"})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/activity?after_log=0&after_event=0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/activity?after_log=0&after_event=0&log_sources=scheduler&log_levels=info", nil)
 	rec := httptest.NewRecorder()
 	server.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -128,11 +129,11 @@ func TestActivityUsesSeparateLogAndEventCursors(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode activity: %v", err)
 	}
-	if len(response.Logs) != 1 || len(response.Events) != 1 || response.LogCursor != 1 || response.EventCursor != 1 {
+	if len(response.Logs) != 1 || response.Logs[0].Source != model.LogSourceScheduler || len(response.Events) != 1 || response.LogCursor != 2 || response.EventCursor != 1 {
 		t.Fatalf("unexpected activity response: %+v", response)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/activity?after_log=1&after_event=1", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/activity?after_log=2&after_event=1", nil)
 	rec = httptest.NewRecorder()
 	server.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -141,8 +142,21 @@ func TestActivityUsesSeparateLogAndEventCursors(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode activity: %v", err)
 	}
-	if len(response.Logs) != 0 || len(response.Events) != 0 || response.LogCursor != 1 || response.EventCursor != 1 {
+	if len(response.Logs) != 0 || len(response.Events) != 0 || response.LogCursor != 2 || response.EventCursor != 1 {
 		t.Fatalf("cursor filtering failed: %+v", response)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/activity?after_log=0&after_event=0&include_logs=false", nil)
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activity status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode activity: %v", err)
+	}
+	if len(response.Logs) != 0 || response.LogCursor != 0 || len(response.Events) != 1 || response.EventCursor != 1 {
+		t.Fatalf("include_logs=false should preserve log cursor: %+v", response)
 	}
 }
 

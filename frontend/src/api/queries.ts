@@ -25,10 +25,20 @@ export function useDashboardQuery() {
   })
 }
 
-export function useActivityQuery(cursors: { afterLog: Ref<number>; afterEvent: Ref<number> }) {
+export function useActivityQuery(cursors: {
+  afterLog: Ref<number>
+  afterEvent: Ref<number>
+  includeLogs: Ref<boolean>
+  logLevels: Ref<string[]>
+  logSources: Ref<string[]>
+}) {
   return useQuery({
     queryKey: activityQueryKey,
-    queryFn: () => apiClient.activity(cursors.afterLog.value, cursors.afterEvent.value),
+    queryFn: () => apiClient.activity(cursors.afterLog.value, cursors.afterEvent.value, {
+      includeLogs: cursors.includeLogs.value,
+      logLevels: cursors.logLevels.value,
+      logSources: cursors.logSources.value,
+    }),
     refetchInterval: 1000,
   })
 }

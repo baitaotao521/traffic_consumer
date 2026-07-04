@@ -11,9 +11,9 @@ backend uses callback-based logging so the same consumer can run in CLI mode and
 Web mode:
 
 - CLI passes a logger that prints plain messages to stdout.
-- Web runtime stores logs in memory and exposes them through `/api/runtime/logs`.
-- Web notifications are stored as events and exposed through
-  `/api/runtime/events`.
+- Web runtime stores logs in memory, mirrors them to the backend console, and
+  exposes filtered increments through `/api/activity`.
+- Web notifications are stored as events and exposed through `/api/activity`.
 
 Keep this split. `internal/consumer` should not import HTTP or frontend code.
 
@@ -55,11 +55,17 @@ m.AddEvent(model.Event{
 
 `runtime.Manager` owns in-memory log and event buffers:
 
-- `AddLog` assigns monotonically increasing `Seq` values.
+- `AddLog` assigns monotonically increasing `Seq` values, normalizes log source
+  and level, and prints the same entry to the backend console.
 - `AddEvent` assigns monotonically increasing `Seq` values and normalizes
   missing event types to `notification`.
 - Both buffers keep only the latest 500 records.
-- HTTP clients poll with a `since` cursor and receive records after that cursor.
+- `LogEntry.Source` is the authoritative source dimension for frontend filters:
+  `scheduler`, `runtime`, `download`.
+- HTTP clients poll `/api/activity` with `after_log` / `after_event`; log
+  reads may additionally send `include_logs`, `log_sources`, and `log_levels`.
+- When `include_logs=false`, the handler must preserve the client's log cursor
+  so pausing the log panel does not silently consume backlog.
 
 This replaces deprecated Python Socket.IO pushes. Do not add new Socket.IO
 behavior to the Python backend.
@@ -86,7 +92,8 @@ enters `model.LogEntry`.
 Log or emit events for:
 
 - Consumer start and stop.
-- Scheduler start, stop, and plan state changes.
+- Scheduler registration, start, trigger, completion, next-run refresh, stop,
+  and plan replacement.
 - Retry exhaustion and failed URL removal.
 - Stats write failures.
 - User-triggered runtime operations that change state.
@@ -118,6 +125,8 @@ streams.
 
 - Adding direct `fmt.Println` calls inside `internal/consumer` instead of using
   its `Logger` callback.
+- Letting the frontend “pause logs” by continuing to advance the log cursor
+  while dropping unseen log entries.
 - Emitting a Web event without `Type`, `Message`, or `Config` when the event is
   tied to a config-specific operation.
 - Extending deprecated Python Socket.IO events instead of using Go HTTP polling.

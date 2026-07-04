@@ -14,7 +14,7 @@ The maintained Web API is registered under `/api` with Huma:
 
 ```text
 GET    /api/dashboard
-GET    /api/activity?after_log=<seq>&after_event=<seq>
+GET    /api/activity?after_log=<seq>&after_event=<seq>&include_logs=<bool>&log_sources=<csv>&log_levels=<csv>
 GET    /api/configurations/{name}
 PUT    /api/configurations/{name}
 DELETE /api/configurations/{name}
@@ -39,6 +39,11 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 
 - `GET /api/dashboard` returns `{ dashboard }`; the dashboard contains config summaries, runtime status, scheduler status, and plan summaries.
 - `GET /api/activity` returns `{ logs, events, log_cursor, event_cursor }`; clients send the last consumed log/event cursors as `after_log` and `after_event`.
+- `GET /api/activity` log reads support three log-only controls:
+  `include_logs`, `log_sources`, and `log_levels`.
+  `include_logs=false` means “do not advance the log cursor yet”.
+- `LogEntry` includes `source` in addition to `level`, `message`, and `seq`.
+  `source` is the backend-owned dimension for frontend log filtering.
 - Command endpoints return `{ dashboard, message }`; config save also returns `item`.
 - Config save/start bodies use `model.Config` / generated `ConfigWritable`. Optional numeric/string fields are omitted when blank. `urls: []` is preserved as an explicit empty URL list.
 - Dashboard numeric form fields must use the component-library number input pattern (`NumberField` / Reka `NumberFieldRoot` + `NumberFieldInput`), not a generic `Input type="number"`. The library's number field owns the numeric model state; form adapters should receive `number | undefined` and must not trim or parse these fields as strings.
@@ -60,11 +65,12 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 
 - Good: a save command writes the config, returns the saved `item`, and returns a fresh dashboard snapshot used to update Vue Query cache.
 - Base: dashboard polling reads one aggregate snapshot; activity polling reads logs and events through one cursor pair; config numeric fields stay as numeric model values from the number-field component until request encoding.
-- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, or uses `Input type="number"` and then trims/parses the form value by hand.
+- Base: pausing实时日志 must keep event polling active without advancing `after_log`; changing source/level filters should restart the log view from the buffered log set, not from a swallowed cursor.
+- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, advances the log cursor while `include_logs=false`, or uses `Input type="number"` and then trims/parses the form value by hand.
 
 ### 6. Tests Required
 
-- HTTP handler tests must assert new response shapes for dashboard, config commands, cron preview, activity cursors, and OpenAPI schema.
+- HTTP handler tests must assert new response shapes for dashboard, config commands, cron preview, activity cursors, activity log filters, and OpenAPI schema.
 - Tests must assert old runtime routes are absent from OpenAPI and return `404`.
 - Frontend contract changes require `npm --prefix frontend run api:generate` and `npm --prefix frontend run build`.
 - Go API changes require `gofmt -w .` and `go test ./...`.
@@ -75,7 +81,7 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 #### Wrong
 
 ```typescript
-await fetch('/api/runtime/status')
+await fetch('/api/activity?after_log=10&after_event=10')
 await fetch('/api/preview_cron', { body: JSON.stringify({ cron_expr }) })
 ```
 
@@ -83,7 +89,11 @@ await fetch('/api/preview_cron', { body: JSON.stringify({ cron_expr }) })
 
 ```typescript
 const dashboard = await apiClient.dashboard()
-const preview = await apiClient.previewCron(expression)
+const activity = await apiClient.activity(10, 10, {
+  includeLogs: true,
+  logSources: ['scheduler', 'runtime'],
+  logLevels: ['info', 'error'],
+})
 ```
 
 `apiClient` wraps the generated Hey API SDK, and Vue Query owns dashboard/activity polling plus command cache updates.

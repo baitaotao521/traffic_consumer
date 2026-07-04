@@ -249,6 +249,18 @@ type HistoryRecord struct {
 	ElapsedSeconds int64 `json:"elapsed_seconds,omitempty"`
 }
 
+// LogSource 区分日志来自调度、运行控制还是下载执行。
+type LogSource string
+
+const (
+	// LogSourceScheduler 表示日志来自计划建立、触发或停止等调度链路。
+	LogSourceScheduler LogSource = "scheduler"
+	// LogSourceRuntime 表示日志来自运行态切换、临时测试和自动启动等控制链路。
+	LogSourceRuntime LogSource = "runtime"
+	// LogSourceDownload 表示日志来自实际下载执行和失败治理链路。
+	LogSourceDownload LogSource = "download"
+)
+
 // StatsRun 是 stats.json 中单次运行的持久化结构。
 type StatsRun struct {
 	// ConfigName 是本次运行所属配置，用于计划详情过滤历史。
@@ -285,6 +297,8 @@ type LogEntry struct {
 	Seq int64 `json:"seq"`
 	// Timestamp 是日志写入运行态缓冲的时间。
 	Timestamp string `json:"timestamp"`
+	// Source 区分日志来自调度、运行控制还是下载执行。
+	Source LogSource `json:"source"`
 	// Level 是日志级别，供前端保留扩展样式。
 	Level string `json:"level"`
 	// Message 是去掉 ANSI 控制符后的日志正文。
@@ -347,6 +361,27 @@ func CleanStringSlice(values []string) []string {
 		}
 	}
 	return result
+}
+
+// NormalizeLogSource 统一日志来源值，避免大小写和空白导致筛选失效。
+func NormalizeLogSource(value string) LogSource {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(LogSourceScheduler):
+		return LogSourceScheduler
+	case string(LogSourceDownload):
+		return LogSourceDownload
+	default:
+		return LogSourceRuntime
+	}
+}
+
+// NormalizeLogLevel 统一日志级别值，便于前后端按级别筛选。
+func NormalizeLogLevel(value string) string {
+	text := strings.ToLower(strings.TrimSpace(value))
+	if text == "" {
+		return "info"
+	}
+	return text
 }
 
 // CleanHeaderValue 拒绝多行 Header 值，避免 HTTP 头注入。

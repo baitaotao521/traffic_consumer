@@ -161,6 +161,12 @@ type activityInput struct {
 	AfterLog int64 `query:"after_log" minimum:"0" doc:"已消费的最后一个日志游标"`
 	// AfterEvent 是客户端已经消费过的最后一个事件游标。
 	AfterEvent int64 `query:"after_event" minimum:"0" doc:"已消费的最后一个事件游标"`
+	// IncludeLogs 控制本次 activity 轮询是否推进日志游标。
+	IncludeLogs string `query:"include_logs" doc:"是否返回日志并推进日志游标"`
+	// LogSources 是逗号分隔的日志来源筛选，例如 scheduler,runtime。
+	LogSources string `query:"log_sources" doc:"逗号分隔的日志来源筛选"`
+	// LogLevels 是逗号分隔的日志级别筛选，例如 info,error。
+	LogLevels string `query:"log_levels" doc:"逗号分隔的日志级别筛选"`
 }
 
 type activityOutput struct {
@@ -396,7 +402,16 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 		Summary:     "读取日志和事件增量",
 		Tags:        []string{"Activity"},
 	}, func(ctx context.Context, input *activityInput) (*activityOutput, error) {
-		logs, logCursor := s.Manager.LogsSince(input.AfterLog)
+		logs := []model.LogEntry{}
+		logCursor := input.AfterLog
+		includeLogs := shouldIncludeLogs(input.IncludeLogs)
+		if includeLogs {
+			logs, logCursor = s.Manager.LogsSince(
+				input.AfterLog,
+				parseLogSources(input.LogSources),
+				parseCSV(input.LogLevels),
+			)
+		}
 		events, eventCursor := s.Manager.EventsSince(input.AfterEvent)
 		return &activityOutput{Body: ActivityResponse{
 			Logs:        logs,
@@ -485,4 +500,38 @@ func planDetailError(err error) error {
 
 func serverError(err error) error {
 	return huma.Error500InternalServerError(err.Error())
+}
+
+func parseLogSources(raw string) []model.LogSource {
+	values := parseCSV(raw)
+	result := make([]model.LogSource, 0, len(values))
+	for _, value := range values {
+		result = append(result, model.NormalizeLogSource(value))
+	}
+	return result
+}
+
+func parseCSV(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		text := strings.TrimSpace(part)
+		if text == "" {
+			continue
+		}
+		result = append(result, text)
+	}
+	return result
+}
+
+func shouldIncludeLogs(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
 }
