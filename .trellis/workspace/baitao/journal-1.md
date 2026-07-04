@@ -70,3 +70,36 @@ Filled backend Trellis specs from the Go implementation, documented Python as de
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Rewrite dashboard API contract
+
+**Date**: 2026-07-04
+**Task**: Rewrite dashboard API contract
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Replaced the dashboard HTTP contract with OpenAPI-first Go endpoints, generated the frontend SDK and query layer, moved dashboard projections into domain helpers, switched charts to vue-echarts diff updates on canvas, and rebuilt the static app bundle.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `03ead55` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
