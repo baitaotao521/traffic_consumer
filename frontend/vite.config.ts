@@ -19,7 +19,7 @@ const handleBuildLog: BuildOnLog = (level, log, defaultHandler) => {
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/static/app/',
+  base: '/',
   plugins: [vue(), tailwindcss()],
   resolve: {
     alias: {
@@ -27,7 +27,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../static/app',
+    outDir: 'dist',
     emptyOutDir: true,
     cssCodeSplit: false,
     rolldownOptions: {

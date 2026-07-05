@@ -11,4 +11,6 @@ venv/
 
 node_modules/
 dist/
+!frontend/dist/
+!frontend/dist/**
 dist-ssr/

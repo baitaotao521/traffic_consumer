@@ -166,10 +166,9 @@ go run . \
 │   ├── storage/            # 配置/统计 JSON 读写
 │   ├── stats/              # 统计聚合与格式化
 │   └── urlmanager/         # URL 分配、权重与失效治理
-├── frontend/               # Vue/Vite + shadcn-vue 前端源码
-├── static/                 # 构建后的前端资源
-├── templates/              # Web 页面壳
+├── frontend/               # Vue/Vite + shadcn-vue 前端源码与 dist 产物
 ├── go.mod                  # Go module
+├── scripts/package.sh      # 本地与 GitHub Actions 共用的发布打包脚本
 ├── Dockerfile              # 镜像构建
 └── .github/workflows/      # CI/CD
 ```
@@ -179,10 +178,10 @@ go run . \
 ## 🛠 开发与测试
 
 1. 安装 Go 1.26、Node.js 22 或更新版本。
-2. 修改前端后运行 `npm --prefix frontend ci` 和 `npm --prefix frontend run build`。
+2. 修改前端后运行 `npm --prefix frontend ci` 和 `npm --prefix frontend run build`，产物写入 `frontend/dist`。
 3. 修改核心逻辑后运行 `go fmt ./...` 和 `go test ./...`。
-4. 本地构建执行 `go build -o traffic_consumer .`。
-5. GitHub Actions（`.github/workflows/build-simple.yml`）会在 push/tag 时自动校验前端与 Go 构建。
+4. 本地打包执行 `scripts/package.sh`，一次性生成三个平台执行 `scripts/package.sh --all`。
+5. GitHub Actions（`.github/workflows/build-simple.yml`）会在 push/tag 时自动校验前端与 Go 构建，并调用同一脚本生成发布包。
 
 ---
 

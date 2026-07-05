@@ -31,10 +31,86 @@ internal/
   stats/                        stats.json read/write, formatting, and per-config aggregation
   storage/                      config.json read/write, config CRUD, URL removal helpers
   urlmanager/                   URL selection, thread assignment, invalid URL state, usage stats
-frontend/                       Vue/Vite dashboard source
-static/app/                     compiled dashboard bundle served by Go
-static/js, static/css           old static assets kept for compatibility with template replacement
-templates/index.html            Web page shell loaded by internal/httpapi
+frontend/                       Vue/Vite dashboard source and dist runtime assets
+frontend/dist/                  compiled dashboard bundle served by Go
+scripts/package.sh              Shared local and GitHub Actions release packaging entry point
+```
+
+---
+
+## Release Packaging Contract
+
+### 1. Scope / Trigger
+
+Use `scripts/package.sh` whenever a local or GitHub Actions flow needs release
+archives for the Go HTTP service. The Web server reads all frontend runtime
+assets from `frontend/dist` under the process run directory, so release archives
+must package that directory beside the executable instead of publishing a bare
+binary.
+
+### 2. Signatures
+
+```bash
+scripts/package.sh
+scripts/package.sh --all
+scripts/package.sh --dist <dir>
+scripts/package.sh --skip-frontend
+TARGET_OS=linux TARGET_ARCH=amd64 PLATFORM_LABEL=Linux scripts/package.sh
+```
+
+### 3. Contracts
+
+- Single-target builds read `TARGET_OS` / `TARGET_ARCH`, then `GOOS` /
+  `GOARCH`, then the host OS/arch.
+- `PLATFORM_LABEL` controls the archive suffix, such as
+  `traffic_consumer_Linux.tar.gz`.
+- `DIST_DIR` or `--dist` controls where archives are written.
+- `BINARY_BASE` controls the binary name inside the archive; Windows builds add
+  `.exe` when needed.
+- `CGO_ENABLED` defaults to `0`; `LDFLAGS` defaults to `-s -w`.
+- `SKIP_FRONTEND=1` or `--skip-frontend` reuses the current `frontend/dist`
+  output.
+- `SKIP_FRONTEND_INSTALL=1` or `--skip-frontend-install` skips `npm ci`.
+
+### 4. Validation & Error Matrix
+
+- Missing `go` -> fail before packaging.
+- Missing `npm` while building frontend -> fail before Go build.
+- Missing `frontend/dist/index.html` with `--skip-frontend` -> fail and tell the
+  caller to build frontend first.
+- Missing `zip` for Windows archives -> fail before creating the `.zip`.
+- Native target build -> run `traffic_consumer --help` as a smoke test.
+
+### 5. Good/Base/Bad Cases
+
+- Good: GitHub Actions matrix calls `scripts/package.sh` with
+  `TARGET_OS`, `TARGET_ARCH`, and `PLATFORM_LABEL`.
+- Base: Local release runs `scripts/package.sh` and creates one host-platform
+  archive under `dist/`.
+- Bad: A workflow hand-writes `go build` and uploads only the executable; the
+  Web UI then lacks `frontend/dist` at runtime.
+
+### 6. Tests Required
+
+- `bash -n scripts/package.sh` for shell syntax.
+- `scripts/package.sh --skip-frontend --all --dist <tmp>` to verify all archive
+  formats and cross-platform `go build` targets.
+- `scripts/package.sh --dist <tmp>` to verify the local frontend build path.
+- `go test ./...` after release plumbing changes that can affect backend build
+  behavior.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```yaml
+run: go build -trimpath -ldflags="-s -w" -o dist/traffic_consumer .
+```
+
+Correct:
+
+```yaml
+run: scripts/package.sh
 ```
 
 ---

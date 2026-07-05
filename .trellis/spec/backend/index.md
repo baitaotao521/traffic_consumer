@@ -8,7 +8,7 @@
 
 Traffic Consumer's maintained backend is the Go HTTP service and CLI in
 `main.go` and `internal/`. The Vue dashboard is built from `frontend/` into
-`static/app/` and served by the Go HTTP API.
+`frontend/dist/` and served by the Go HTTP API.
 
 The product Python backend has been removed. New backend work belongs in Go,
 and release plumbing must stay on the Go executable and Docker image path.

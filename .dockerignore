@@ -1,7 +1,11 @@
 .git/
 .idea/
+.codex/
 __pycache__/
 .venv/
+node_modules/
+frontend/node_modules/
+frontend/dist/
 *.pyc
 *.pyo
 *.pyd
@@ -26,4 +30,4 @@ var/
 venv/
 ENV/
 traffic_consumer
-traffic_consumer_gui.py 
+traffic_consumer_gui.py

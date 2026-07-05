@@ -25,7 +25,7 @@ import (
 type Server struct {
 	// Manager 承载 Web 控制台的运行态、调度器、日志和事件缓冲。
 	Manager *appruntime.Manager
-	// BaseDir 是模板和静态资源所在的仓库根目录。
+	// BaseDir 是仓库或发布包根目录，前端产物固定读取 BaseDir/frontend/dist。
 	BaseDir string
 }
 
@@ -204,7 +204,11 @@ func (s *Server) Router() http.Handler {
 	r.Get("/favicon.ico", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(s.BaseDir, "static")))))
+	// Vite 前端产物统一放在 frontend/dist，避免模板和静态资源分散到多个运行目录。
+	frontendFiles := http.FileServer(http.Dir(s.frontendDir()))
+	r.Handle("/assets/*", frontendFiles)
+	r.Get("/favicon.svg", s.frontendFile("favicon.svg"))
+	r.Get("/icons.svg", s.frontendFile("icons.svg"))
 	r.Route("/api", func(r chi.Router) {
 		s.registerAPI(r)
 	})
@@ -212,16 +216,24 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) index(w http.ResponseWriter, _ *http.Request) {
-	path := filepath.Join(s.BaseDir, "templates", "index.html")
+	path := filepath.Join(s.frontendDir(), "index.html")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		http.Error(w, "template not found", http.StatusInternalServerError)
+		http.Error(w, "frontend bundle not found", http.StatusInternalServerError)
 		return
 	}
-	html := strings.ReplaceAll(string(data), "{{ url_for('static', filename='css/style.css') }}", "/static/css/style.css")
-	html = strings.ReplaceAll(html, "{{ url_for('static', filename='js/main.js') }}", "/static/js/main.js")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(html))
+	_, _ = w.Write(data)
+}
+
+func (s *Server) frontendDir() string {
+	return filepath.Join(s.BaseDir, "frontend", "dist")
+}
+
+func (s *Server) frontendFile(name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join(s.frontendDir(), name))
+	}
 }
 
 func (s *Server) registerAPI(r chi.Router) huma.API {

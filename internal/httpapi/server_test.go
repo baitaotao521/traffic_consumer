@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -388,7 +389,20 @@ func TestOpenAPISchemaAndOldRoutes(t *testing.T) {
 }
 
 func TestIndexServesVueBundle(t *testing.T) {
-	server := newTestServer(t)
+	baseDir := t.TempDir()
+	distDir := filepath.Join(baseDir, "frontend", "dist")
+	if err := os.MkdirAll(filepath.Join(distDir, "assets"), 0o755); err != nil {
+		t.Fatalf("create frontend dist: %v", err)
+	}
+	index := `<!DOCTYPE html><script type="module" src="/assets/app.js"></script>`
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte(index), 0o644); err != nil {
+		t.Fatalf("write frontend index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "assets", "app.js"), []byte("console.log('ok')"), 0o644); err != nil {
+		t.Fatalf("write frontend asset: %v", err)
+	}
+
+	server := newTestServerWithBaseDir(t, baseDir)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	server.Router().ServeHTTP(rec, req)
@@ -396,15 +410,27 @@ func TestIndexServesVueBundle(t *testing.T) {
 		t.Fatalf("index status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "/static/app/assets/app.js") {
+	if !strings.Contains(body, "/assets/app.js") {
 		t.Fatalf("index should load Vue dashboard bundle: %s", body)
 	}
-	if strings.Contains(body, "/static/js/main.js") {
-		t.Fatalf("index should not load retired dashboard script: %s", body)
+	if strings.Contains(body, "/static/") {
+		t.Fatalf("index should not load retired static directory: %s", body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/assets/app.js", nil)
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.String() != "console.log('ok')" {
+		t.Fatalf("asset route status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
 func newTestServer(t *testing.T) *Server {
+	t.Helper()
+	return newTestServerWithBaseDir(t, t.TempDir())
+}
+
+func newTestServerWithBaseDir(t *testing.T, baseDir string) *Server {
 	t.Helper()
 	dir := t.TempDir()
 	paths := config.Paths{
@@ -412,7 +438,7 @@ func newTestServer(t *testing.T) *Server {
 		ConfigFile: filepath.Join(dir, "config.json"),
 		StatsFile:  filepath.Join(dir, "stats.json"),
 	}
-	return New(appruntime.New(paths), "../..")
+	return New(appruntime.New(paths), baseDir)
 }
 
 func findPlan(plans []model.PlanSummary, name string) (model.PlanSummary, bool) {
