@@ -202,3 +202,36 @@ Implemented decoupled frontend and backend guards for configuration editing, ren
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Config editor save flow hardening
+
+**Date**: 2026-07-05
+**Task**: Config editor save flow hardening
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Rejected duplicate config create/rename without overwrite confirmation, fixed async confirmation stacking/close timing, documented the contract, and changed URL editing to table-based row input while preserving shared form projection.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3744f2b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
