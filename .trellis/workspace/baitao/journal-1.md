@@ -367,3 +367,36 @@ Added frontend Trellis specs for Vue/Vite dashboard structure, API state flow, s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: 前端体验与自动拆包优化
+
+**Date**: 2026-07-06
+**Task**: 前端体验与自动拆包优化
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+完成 dashboard 首屏加载、自动拆包、移动端布局、语义颜色、可访问性和未使用资产清理；生产构建与 diff 检查通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `822de0b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
