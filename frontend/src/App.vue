@@ -35,7 +35,6 @@ const hasScheduler = computed(() => {
             <div class="flex flex-wrap items-center gap-3">
               <Skeleton class="h-6 w-36" />
               <Skeleton class="h-6 w-20" />
-              <Skeleton class="h-9 w-[220px]" />
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <Skeleton class="h-9 w-24" />
@@ -61,8 +60,6 @@ const hasScheduler = computed(() => {
 
       <template v-else>
         <TopBar
-          v-model:selected-config-name="dashboard.selectedConfigName.value"
-          :configs="dashboard.configs.value"
           :has-scheduler="hasScheduler"
           :is-stopped="isStopped"
           :status-label="dashboard.statusLabel.value"

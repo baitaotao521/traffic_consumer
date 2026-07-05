@@ -14,7 +14,6 @@ import {
   applyConfigToForm,
   configNames,
   configWithName,
-  currentConfigName,
   emptyDashboard,
   formatDateTime,
   formatPlanSchedule,
@@ -70,8 +69,6 @@ export function useDashboard() {
   const dashboardCache = useDashboardCache()
   const dashboardQuery = useDashboardQuery()
 
-  const selectedConfigName = ref('')
-  const selectedConfigDetail = ref<ConfigPayload | null>(null)
   const logs = ref<LogEntry[]>([])
   const logEnabled = ref(false)
   const selectedLogSources = ref(logSourceOptions.map((option) => option.value))
@@ -128,7 +125,6 @@ export function useDashboard() {
   const plans = computed(() => dashboard.value.plans || [])
   const activeConfigCount = computed(() => plans.value.filter((plan) => plan.running || plan.scheduler_running).length)
   const urlStats = computed(() => status.value.url_usage_stats || [])
-  const currentConfig = computed(() => currentConfigName(status.value, selectedConfigName.value))
   const statusLabelValue = computed(() => statusLabel(status.value))
   const statusVariantValue = computed(() => statusVariant(status.value))
   const isDashboardLoading = computed(() => dashboardQuery.isPending.value && !dashboardQuery.data.value)
@@ -160,7 +156,7 @@ export function useDashboard() {
   const isStoppingScheduler = computed(() => runtimeMutations.stopScheduler.isPending.value)
   const isStoppingPlan = computed(() => runtimeMutations.stopPlan.isPending.value)
   const editorLastRun = computed(() => {
-    const name = form.name.trim() || selectedConfigName.value
+    const name = form.name.trim()
     if (!name) return null
     return lastRunByConfig[name] || plans.value.find((plan) => plan.name === name)?.last_run || null
   })
@@ -371,22 +367,9 @@ export function useDashboard() {
     }
   }
 
-  async function loadConfigDetail(name: string) {
-    if (!name) {
-      selectedConfigDetail.value = null
-      return
-    }
-    const data = await apiClient.config(name)
-    selectedConfigName.value = data.item.name
-    selectedConfigDetail.value = configWithName(data.item.config, data.item.name)
-  }
-
   async function loadConfigPayload(name: string): Promise<ConfigPayload> {
     const data = await apiClient.config(name)
-    const payload = configWithName(data.item.config, data.item.name)
-    selectedConfigName.value = data.item.name
-    selectedConfigDetail.value = payload
-    return payload
+    return configWithName(data.item.config, data.item.name)
   }
 
   async function runAction(action: () => Promise<unknown>) {
@@ -397,14 +380,6 @@ export function useDashboard() {
     }
   }
 
-  function ensureSelectedConfig(): ConfigPayload | null {
-    if (!selectedConfigName.value || !selectedConfigDetail.value) {
-      pushAlert({ title: '请选择运行配置。', variant: 'warning' })
-      return null
-    }
-    return configWithName(selectedConfigDetail.value, selectedConfigName.value)
-  }
-
   function validateSavedConfigForStart(name: string, payload: ConfigPayload): ConfigPayload | null {
     const projection = projectConfigPayload(name, payload, 'start')
     if (!projection.ok) {
@@ -412,14 +387,6 @@ export function useDashboard() {
       return null
     }
     return projection.payload
-  }
-
-  async function startSelected() {
-    const payload = ensureSelectedConfig()
-    if (!payload) return
-    const startPayload = validateSavedConfigForStart(selectedConfigName.value, payload)
-    if (!startPayload) return
-    await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(startPayload))
   }
 
   async function startPlan(plan: PlanSummary) {
@@ -473,18 +440,6 @@ export function useDashboard() {
     editorOpen.value = true
   }
 
-  function openEditor() {
-    // 编辑配置沿用当前选中配置；没有配置时仍提供空白表单作为兜底入口。
-    if (selectedConfigName.value && selectedConfigDetail.value) {
-      applyConfigToForm(form, selectedConfigName.value, selectedConfigDetail.value)
-      setEditorContext('edit', selectedConfigName.value)
-    } else {
-      applyConfigToForm(form)
-      setEditorContext('create')
-    }
-    editorOpen.value = true
-  }
-
   async function openPlanEditor(plan: PlanSummary) {
     const payload = await loadConfigPayload(plan.name)
     applyConfigToForm(form, plan.name, payload)
@@ -507,11 +462,10 @@ export function useDashboard() {
       },
     })
     const savedName = response.item?.name || request.targetName
-    selectedConfigName.value = savedName
-    selectedConfigDetail.value = response.item
+    const savedPayload = response.item
       ? configWithName(response.item.config, savedName)
       : configWithName(request.payload, savedName)
-    applyConfigToForm(form, savedName, selectedConfigDetail.value)
+    applyConfigToForm(form, savedName, savedPayload)
     setEditorContext('edit', savedName)
     pushCommandMessage(response)
     closeEditorNow()
@@ -544,27 +498,20 @@ export function useDashboard() {
 
   async function deleteSelectedConfig(target: string) {
     const response = await configMutations.deleteConfig.mutateAsync(target)
-    selectedConfigName.value = response.dashboard.configs?.[0]?.name || ''
-    selectedConfigDetail.value = null
     pushCommandMessage(response)
   }
 
-  function requestDeleteSelectedConfig(targetName?: string) {
-    const target = targetName || selectedConfigName.value
-    if (!target) {
-      pushAlert({ title: '请选择配置。', variant: 'warning' })
-      return
-    }
-    const stoppingNames = activeRuntimeNames(plans.value, status.value, [target])
+  function requestDeleteSelectedConfig(targetName: string) {
+    const stoppingNames = activeRuntimeNames(plans.value, status.value, [targetName])
     openConfirmation({
       title: '删除配置',
       description: stoppingNames.length
         ? `删除前停止：${stoppingNames.join('、')}。`
-        : `配置 "${target}" 会从当前列表中移除。`,
+        : `配置 "${targetName}" 会从当前列表中移除。`,
       actionLabel: '删除',
       variant: 'destructive',
       pendingKey: 'deleteConfig',
-      action: () => deleteSelectedConfig(target),
+      action: () => deleteSelectedConfig(targetName),
     })
   }
 
@@ -625,20 +572,6 @@ export function useDashboard() {
 
   let cronTimer = 0
 
-  watch(configs, (names) => {
-    if (!names.length) {
-      selectedConfigName.value = ''
-      selectedConfigDetail.value = null
-      if (!editorOpen.value) {
-        applyConfigToForm(form)
-      }
-      return
-    }
-    if (!selectedConfigName.value || !names.includes(selectedConfigName.value)) {
-      selectedConfigName.value = names[0]
-    }
-  }, { immediate: true })
-
   watch(plans, (items) => {
     for (const plan of items) {
       if (plan.last_run) {
@@ -646,12 +579,6 @@ export function useDashboard() {
       }
     }
   }, { immediate: true })
-
-  watch(selectedConfigName, async (name) => {
-    if (name) {
-      await runAction(() => loadConfigDetail(name))
-    }
-  })
 
   watch(() => dashboardQuery.error.value, (error) => {
     if (error) {
@@ -804,9 +731,7 @@ export function useDashboard() {
     confirmDialogTitle,
     confirmDialogVariant,
     confirmPendingAction,
-    configs,
     cronPreview,
-    currentConfig,
     editorLastRun,
     editorValidationErrors,
     isConfirmingAction,
@@ -832,7 +757,6 @@ export function useDashboard() {
     logSourceVariant,
     logs,
     openCreateConfig,
-    openEditor,
     openPlanEditor,
     openPlanDetail,
     planDialogOpen,
@@ -848,13 +772,11 @@ export function useDashboard() {
     scheduler,
     selectedLogLevels,
     selectedLogSources,
-    selectedConfigName,
     selectedPlanDetail,
     speedLabels,
     speedValues,
     startEditorTempTest,
     startPlan,
-    startSelected,
     status,
     statusLabel: statusLabelValue,
     statusState,

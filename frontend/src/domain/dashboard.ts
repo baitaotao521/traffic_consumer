@@ -86,10 +86,6 @@ export function statusVariant(status: StatusPayload): BadgeVariant {
   return 'outline'
 }
 
-export function currentConfigName(status: StatusPayload, selectedConfigName: string): string {
-  return status.config || selectedConfigName || '未配置'
-}
-
 export function threadRows(status: StatusPayload): ThreadRow[] {
   const map = status.thread_status || {}
   const metrics = status.thread_metrics || {}
