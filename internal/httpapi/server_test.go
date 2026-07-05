@@ -335,6 +335,11 @@ func TestOpenAPISchemaAndOldRoutes(t *testing.T) {
 		t.Fatalf("openapi status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var spec struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]any `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
 		Paths map[string]any `json:"paths"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &spec); err != nil {
@@ -343,8 +348,28 @@ func TestOpenAPISchemaAndOldRoutes(t *testing.T) {
 	if _, ok := spec.Paths["/dashboard"]; !ok {
 		t.Fatalf("new dashboard path missing from OpenAPI: %+v", spec.Paths)
 	}
+	if _, ok := spec.Components.Schemas["DashboardResponse"].Properties["$schema"]; ok {
+		t.Fatalf("OpenAPI response schema should not expose Huma metadata field")
+	}
 	if _, ok := spec.Paths["/runtime/status"]; ok {
 		t.Fatalf("old runtime path should not be present in OpenAPI")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dashboard status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Header().Get("Link"), "describedby") {
+		t.Fatalf("dashboard response should not advertise schema metadata: %s", rec.Header().Get("Link"))
+	}
+	var dashboard map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &dashboard); err != nil {
+		t.Fatalf("decode dashboard body: %v", err)
+	}
+	if _, ok := dashboard["$schema"]; ok {
+		t.Fatalf("dashboard response body should not include Huma metadata: %s", rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/runtime/status", nil)
@@ -352,6 +377,13 @@ func TestOpenAPISchemaAndOldRoutes(t *testing.T) {
 	server.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("old runtime route should be gone, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/schemas/DashboardResponse.json", nil)
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("schema route should be disabled, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

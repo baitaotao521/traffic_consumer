@@ -6,10 +6,6 @@ export type ClientOptions = {
 
 export type ActivityResponse = {
     /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
-    /**
      * 最新事件游标
      */
     event_cursor: number;
@@ -28,10 +24,6 @@ export type ActivityResponse = {
 };
 
 export type Config = {
-    /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
     auto_remove_failed_url?: boolean;
     auto_start?: boolean;
     config_name?: string;
@@ -55,10 +47,6 @@ export type Config = {
 };
 
 export type ConfigCommandResponse = {
-    /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
     /**
      * Dashboard 快照
      */
@@ -86,10 +74,6 @@ export type ConfigResource = {
 
 export type ConfigResourceResponse = {
     /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
-    /**
      * 配置详情
      */
     item: ConfigResource;
@@ -104,10 +88,6 @@ export type ConfigSummary = {
 
 export type CronPreviewRequest = {
     /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
-    /**
      * Cron 表达式
      */
     expression: string;
@@ -115,20 +95,12 @@ export type CronPreviewRequest = {
 
 export type CronPreviewResponse = {
     /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
-    /**
      * 接下来五次触发时间
      */
     items: Array<string> | null;
 };
 
 export type DashboardResponse = {
-    /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
     /**
      * Dashboard 快照
      */
@@ -170,10 +142,6 @@ export type ErrorDetail = {
 };
 
 export type ErrorModel = {
-    /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
     /**
      * A human-readable explanation specific to this occurrence of the problem.
      */
@@ -245,10 +213,6 @@ export type PlanDetailPayload = {
 
 export type PlanDetailResponse = {
     /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
-    /**
      * 运行计划详情
      */
     item: PlanDetailPayload;
@@ -275,10 +239,6 @@ export type PlanSummary = {
 };
 
 export type RuntimeCommandResponse = {
-    /**
-     * A URL to the JSON Schema for this object.
-     */
-    readonly $schema?: string;
     /**
      * Dashboard 快照
      */
@@ -328,154 +288,6 @@ export type UrlUsageStat = {
     url: string;
 };
 
-export type ActivityResponseWritable = {
-    /**
-     * 最新事件游标
-     */
-    event_cursor: number;
-    /**
-     * 事件增量
-     */
-    events: Array<Event> | null;
-    /**
-     * 最新日志游标
-     */
-    log_cursor: number;
-    /**
-     * 日志增量
-     */
-    logs: Array<LogEntry> | null;
-};
-
-export type ConfigWritable = {
-    auto_remove_failed_url?: boolean;
-    auto_start?: boolean;
-    config_name?: string;
-    count?: number;
-    cron_expr?: string;
-    duration?: number;
-    interval?: number;
-    limit_speed?: number;
-    name?: string;
-    request_headers?: {
-        [key: string]: string;
-    };
-    thread_start_delay?: number;
-    threads?: number;
-    traffic_limit?: number;
-    url?: string;
-    url_strategy?: string;
-    url_switch_interval?: number;
-    urls: Array<string> | null;
-    user_agent?: string;
-};
-
-export type ConfigCommandResponseWritable = {
-    /**
-     * Dashboard 快照
-     */
-    dashboard: DashboardSnapshot;
-    /**
-     * 配置详情
-     */
-    item?: ConfigResourceWritable;
-    /**
-     * 操作结果
-     */
-    message: string;
-};
-
-export type ConfigResourceWritable = {
-    /**
-     * 配置内容
-     */
-    config: ConfigWritable;
-    /**
-     * 配置名称
-     */
-    name: string;
-};
-
-export type ConfigResourceResponseWritable = {
-    /**
-     * 配置详情
-     */
-    item: ConfigResourceWritable;
-};
-
-export type CronPreviewRequestWritable = {
-    /**
-     * Cron 表达式
-     */
-    expression: string;
-};
-
-export type CronPreviewResponseWritable = {
-    /**
-     * 接下来五次触发时间
-     */
-    items: Array<string> | null;
-};
-
-export type DashboardResponseWritable = {
-    /**
-     * Dashboard 快照
-     */
-    dashboard: DashboardSnapshot;
-};
-
-export type ErrorModelWritable = {
-    /**
-     * A human-readable explanation specific to this occurrence of the problem.
-     */
-    detail?: string;
-    /**
-     * Optional list of individual error details
-     */
-    errors?: Array<ErrorDetail> | null;
-    /**
-     * A URI reference that identifies the specific occurrence of the problem.
-     */
-    instance?: string;
-    /**
-     * HTTP status code
-     */
-    status?: number;
-    /**
-     * A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
-     */
-    title?: string;
-    /**
-     * A URI reference to human-readable documentation for the error.
-     */
-    type?: string;
-};
-
-export type PlanDetailPayloadWritable = {
-    config: ConfigWritable;
-    history: Array<HistoryRecord> | null;
-    name: string;
-    summary: PlanSummary;
-};
-
-export type PlanDetailResponseWritable = {
-    /**
-     * 运行计划详情
-     */
-    item: PlanDetailPayloadWritable;
-};
-
-export type RuntimeCommandResponseWritable = {
-    /**
-     * Dashboard 快照
-     */
-    dashboard: DashboardSnapshot;
-    /**
-     * 操作结果
-     */
-    message: string;
-};
-
 export type GetActivityData = {
     body?: never;
     path?: never;
@@ -523,7 +335,7 @@ export type GetActivityResponses = {
 export type GetActivityResponse = GetActivityResponses[keyof GetActivityResponses];
 
 export type StartRuntimeCommandData = {
-    body: ConfigWritable;
+    body: Config;
     path?: never;
     query?: never;
     url: '/commands/start-runtime';
@@ -556,7 +368,7 @@ export type StartRuntimeCommandResponses = {
 export type StartRuntimeCommandResponse = StartRuntimeCommandResponses[keyof StartRuntimeCommandResponses];
 
 export type StartTempTestCommandData = {
-    body: ConfigWritable;
+    body: Config;
     path?: never;
     query?: never;
     url: '/commands/start-temp-test';
@@ -761,7 +573,7 @@ export type GetConfigurationResponses = {
 export type GetConfigurationResponse = GetConfigurationResponses[keyof GetConfigurationResponses];
 
 export type SaveConfigurationData = {
-    body: ConfigWritable;
+    body: Config;
     path: {
         /**
          * 配置名称
@@ -812,7 +624,7 @@ export type SaveConfigurationResponses = {
 export type SaveConfigurationResponse = SaveConfigurationResponses[keyof SaveConfigurationResponses];
 
 export type PreviewCronData = {
-    body: CronPreviewRequestWritable;
+    body: CronPreviewRequest;
     path?: never;
     query?: never;
     url: '/cron/preview';

@@ -45,7 +45,13 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - `LogEntry` includes `source` in addition to `level`, `message`, and `seq`.
   `source` is the backend-owned dimension for frontend log filtering.
 - Command endpoints return `{ dashboard, message }`; config save also returns `item`.
-- Config save/start bodies use `model.Config` / generated `ConfigWritable`. Optional numeric/string fields are omitted when blank. `urls: []` is preserved as an explicit empty URL list.
+- Config save/start bodies use `model.Config` / generated `Config` through the
+  frontend `ConfigPayload` alias. Optional numeric/string fields are omitted
+  when blank. `urls: []` is preserved as an explicit empty URL list.
+- Huma schema-link metadata stays disabled for the Web API: responses and
+  `frontend/src/api/openapi.json` must not include `$schema`, and
+  `/api/schemas/*` must return `404`. `/api/openapi.json` remains the only
+  generated frontend contract source.
 - `PUT /api/configurations/{name}` treats the path name as the source/original
   config and the body `name` / `config_name` as the target. `mode=create`
   rejects an existing target directly. `mode=edit` allows saving the same name,
@@ -64,10 +70,10 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Dashboard numeric form fields must use the component-library number input pattern (`NumberField` / Reka `NumberFieldRoot` + `NumberFieldInput`), not a generic `Input type="number"`. The library's number field owns the numeric model state; form adapters should receive `number | undefined` and must not trim or parse these fields as strings.
 - Dashboard config editor payloads must be projected through the shared
   frontend editor guard before save, start, or temporary test. Do not rebuild a
-  separate `ConfigWritable` serializer inside a component or composable.
+  separate `Config` serializer inside a component or composable.
 - Dashboard URL table rows are an editor affordance only. Rows must write back
   to `ConfigForm.urls`, and save/start/temp-test must continue to let the shared
-  frontend projection produce `ConfigWritable.urls` so URL parsing, duplicate
+  frontend projection produce `ConfigPayload.urls` so URL parsing, duplicate
   detection, and empty-list handling stay in one path.
 - Dashboard command confirmations that run async mutations must keep close
   timing in the composable. Do not wire mutation confirms through
@@ -121,6 +127,9 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
   source/target runtime stop isolation for successful saves.
 - Runtime tests must assert that stopped immediate runs clear `PlanSummary.total_bytes_raw` and `download_count` while preserving `last_run`, and that scheduled runtime items remain registered after a trigger but also clear current-run row metrics.
 - Tests must assert old runtime routes are absent from OpenAPI and return `404`.
+- Tests must assert Huma schema metadata stays disabled: no `$schema` field in
+  generated OpenAPI or runtime JSON responses, no `describedby` response link,
+  and no `/api/schemas/*` route.
 - Frontend contract changes require `npm --prefix frontend run api:generate` and `npm --prefix frontend run build`.
 - Frontend build-configuration changes require `npm --prefix frontend run build`
   and a log assertion for any warning class the task claims to remove.
@@ -155,7 +164,7 @@ const activity = await apiClient.activity(10, 10, {
 #### Wrong
 
 ```typescript
-await apiClient.saveConfig(form.name, form as ConfigWritable)
+await apiClient.saveConfig(form.name, form as Config)
 ```
 
 #### Correct

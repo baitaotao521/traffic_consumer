@@ -227,6 +227,9 @@ func (s *Server) index(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) registerAPI(r chi.Router) huma.API {
 	config := huma.DefaultConfig("Traffic Consumer API", "2.0.0")
 	config.Servers = []*huma.Server{{URL: "/api"}}
+	// Web API 响应只承载 dashboard 业务 payload；类型合同统一由 /api/openapi.json 提供给前端生成 SDK。
+	config.SchemasPath = ""
+	config.CreateHooks = nil
 	api := humachi.New(r, config)
 
 	huma.Register(api, huma.Operation{

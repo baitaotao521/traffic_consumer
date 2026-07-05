@@ -1,5 +1,5 @@
 import type {
-  ConfigWritable,
+  Config,
   HistoryRecord,
   LogEntry,
   PlanDetailPayload,
@@ -12,7 +12,7 @@ import type {
 
 export type RuntimeState = 'running' | 'scheduled' | 'stopped'
 
-export type ConfigPayload = ConfigWritable
+export type ConfigPayload = Config
 export type ThreadMetricPayload = ThreadMetric
 export type URLUsageStat = UrlUsageStat
 export type { HistoryRecord, LogEntry, PlanSummary, SchedulerPayload, StatusPayload }

@@ -14,9 +14,9 @@ import {
 } from './generated'
 import type {
   ActivityResponse,
+  Config,
   ConfigCommandResponse,
   ConfigResourceResponse,
-  ConfigWritable,
   CronPreviewResponse,
   DashboardResponse,
   ErrorModel,
@@ -107,7 +107,7 @@ export const apiClient = {
     return unwrap(getConfiguration({ path: { name } }))
   },
 
-  saveConfig(name: string, config: ConfigWritable, options: SaveConfigOptions = {}): Promise<ConfigCommandResponse> {
+  saveConfig(name: string, config: Config, options: SaveConfigOptions = {}): Promise<ConfigCommandResponse> {
     return unwrap(saveConfiguration({
       path: { name },
       query: {
@@ -121,11 +121,11 @@ export const apiClient = {
     return unwrap(deleteConfiguration({ path: { name } }))
   },
 
-  startRuntime(config: ConfigWritable): Promise<RuntimeCommandResponse> {
+  startRuntime(config: Config): Promise<RuntimeCommandResponse> {
     return unwrap(startRuntimeCommand({ body: config }))
   },
 
-  startTempTest(config: ConfigWritable): Promise<RuntimeCommandResponse> {
+  startTempTest(config: Config): Promise<RuntimeCommandResponse> {
     return unwrap(startTempTestCommand({ body: config }))
   },
 

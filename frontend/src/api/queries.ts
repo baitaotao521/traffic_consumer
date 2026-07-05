@@ -4,8 +4,8 @@ import type { Ref } from 'vue'
 import { apiClient } from './client'
 import type { SaveConfigOptions } from './client'
 import type {
+  Config,
   ConfigCommandResponse,
-  ConfigWritable,
   DashboardResponse,
   DashboardSnapshot,
   RuntimeCommandResponse,
@@ -72,7 +72,7 @@ export function useDashboardCommandMutation<TVariables, TResponse extends Dashbo
 export function useConfigCommandMutations() {
   return {
     saveConfig: useDashboardCommandMutation<
-      { name: string; config: ConfigWritable; options?: SaveConfigOptions },
+      { name: string; config: Config; options?: SaveConfigOptions },
       ConfigCommandResponse
     >((variables) =>
       apiClient.saveConfig(variables.name, variables.config, variables.options),
@@ -83,8 +83,8 @@ export function useConfigCommandMutations() {
 
 export function useRuntimeCommandMutations() {
   return {
-    startRuntime: useDashboardCommandMutation<ConfigWritable, RuntimeCommandResponse>((config) => apiClient.startRuntime(config)),
-    startTempTest: useDashboardCommandMutation<ConfigWritable, RuntimeCommandResponse>((config) =>
+    startRuntime: useDashboardCommandMutation<Config, RuntimeCommandResponse>((config) => apiClient.startRuntime(config)),
+    startTempTest: useDashboardCommandMutation<Config, RuntimeCommandResponse>((config) =>
       apiClient.startTempTest(config),
     ),
     stopPlan: useDashboardCommandMutation<string, RuntimeCommandResponse>((name) => apiClient.stopPlan(name)),
