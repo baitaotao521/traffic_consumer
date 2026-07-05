@@ -13,6 +13,7 @@ export type ChartConfig = {
   [k in string]: {
     label?: string | Component
     icon?: string | Component
+    valueFormatter?: (value: unknown) => string
   } & (
     | { color?: string, theme?: never }
     | { color?: never, theme: Record<keyof typeof THEMES, string> }

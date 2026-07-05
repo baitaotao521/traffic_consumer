@@ -18,13 +18,14 @@ defineProps<{
 <template>
   <Card class="min-h-[360px]">
     <CardHeader class="border-b py-3">
-      <CardTitle>URL 负载分布</CardTitle>
+      <CardTitle>URL 分布</CardTitle>
     </CardHeader>
     <CardContent class="grid min-h-[260px] gap-4 p-4 xl:grid-cols-[160px_minmax(0,1fr)]">
       <div class="flex items-center justify-center">
         <DashboardChart
           chart-id="url-pie-chart"
           type="doughnut"
+          sub-label="下载分布"
           :labels="labels"
           :values="values"
           :height="150"

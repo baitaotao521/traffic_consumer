@@ -10,7 +10,6 @@ import PlanPanel from '@/components/dashboard/PlanPanel.vue'
 import SpeedPanel from '@/components/dashboard/SpeedPanel.vue'
 import ThreadPanel from '@/components/dashboard/ThreadPanel.vue'
 import TopBar from '@/components/dashboard/TopBar.vue'
-import UrlUsagePanel from '@/components/dashboard/UrlUsagePanel.vue'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -49,18 +48,10 @@ const hasScheduler = computed(() => {
             <Skeleton v-for="item in 4" :key="`kpi-skeleton-${item}`" class="h-[116px] rounded-xl" />
           </div>
 
+          <Skeleton class="h-[520px] rounded-xl" />
+
           <Skeleton class="h-[420px] rounded-xl" />
-
-          <div class="grid items-start gap-6 xl:grid-cols-12">
-            <div class="grid gap-6 xl:col-span-8">
-              <Skeleton class="h-[360px] rounded-xl" />
-              <Skeleton class="h-[420px] rounded-xl" />
-            </div>
-
-            <div class="grid auto-rows-min content-start gap-6 xl:col-span-4">
-              <Skeleton class="h-[360px] rounded-xl" />
-            </div>
-          </div>
+          <Skeleton class="h-[360px] rounded-xl" />
 
           <Skeleton class="h-[380px] rounded-xl" />
         </section>
@@ -99,25 +90,18 @@ const hasScheduler = computed(() => {
             @stop-plan="dashboard.requestStopNamedPlan($event)"
           />
 
-          <div class="grid items-start gap-6 xl:grid-cols-12">
-            <div class="grid gap-6 xl:col-span-8">
-              <SpeedPanel
-                :labels="dashboard.speedLabels.value"
-                :refreshing="dashboard.isRefreshingDashboard.value"
-                :values="dashboard.speedValues.value"
-                @refresh="dashboard.runAction(dashboard.refreshDashboard)"
-              />
-              <ThreadPanel :thread-counts="dashboard.threadCounts.value" :thread-rows="dashboard.threadRows.value" />
-            </div>
+          <SpeedPanel
+            :current-speed="dashboard.status.value.speed || '0 B/s'"
+            :labels="dashboard.speedLabels.value"
+            :refreshing="dashboard.isRefreshingDashboard.value"
+            :thread-active-values="dashboard.threadActiveValues.value"
+            :url-chart-labels="dashboard.urlChartLabels.value"
+            :url-chart-values="dashboard.urlChartValues.value"
+            :values="dashboard.speedValues.value"
+            @refresh="dashboard.runAction(dashboard.refreshDashboard)"
+          />
 
-            <div class="grid auto-rows-min content-start gap-6 xl:col-span-4">
-              <UrlUsagePanel
-                :labels="dashboard.urlChartLabels.value"
-                :stats="dashboard.urlStats.value"
-                :values="dashboard.urlChartValues.value"
-              />
-            </div>
-          </div>
+          <ThreadPanel :thread-counts="dashboard.threadCounts.value" :thread-rows="dashboard.threadRows.value" />
 
           <LogHistoryPanel
             v-model:log-enabled="dashboard.logEnabled.value"

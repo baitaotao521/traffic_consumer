@@ -24,6 +24,7 @@ import {
   logSourceOptions,
   logSourceVariant,
   normalizeDashboard,
+  normalizeStatus,
   normalizePlanDetail,
   parseSpeed,
   planState,
@@ -81,7 +82,7 @@ export function useDashboard() {
   const editorOpen = ref(false)
   const planDialogOpen = ref(false)
   const selectedPlanDetail = ref<PlanDetailView | null>(null)
-  const speedSamples = ref<{ label: string; value: number }[]>([])
+  const speedSamples = ref<{ label: string; threadActive: number; value: number }[]>([])
   const cronPreview = ref<string[]>([])
   const confirmDialogOpen = ref(false)
   const confirmDialogTitle = ref('')
@@ -135,6 +136,7 @@ export function useDashboard() {
   const threadCounts = computed(() => makeThreadCounts(threadRows.value))
   const speedValues = computed(() => speedSamples.value.map((sample) => sample.value))
   const speedLabels = computed(() => speedSamples.value.map((sample) => sample.label))
+  const threadActiveValues = computed(() => speedSamples.value.map((sample) => sample.threadActive))
   const urlChartValues = computed(() => urlStats.value.map((item) => item.count))
   const urlChartLabels = computed(() => urlStats.value.map((item, index) => item.url || `链接 ${index + 1}`))
 
@@ -660,7 +662,17 @@ export function useDashboard() {
   watch(() => dashboardQuery.data.value, (response) => {
     const nextStatus = response?.dashboard.status
     if (!nextStatus) return
-    speedSamples.value.push({ label: new Date().toLocaleTimeString(), value: parseSpeed(nextStatus.speed) })
+    const normalizedStatus = normalizeStatus(nextStatus)
+    const sampledThreadCounts = makeThreadCounts(makeThreadRows(normalizedStatus))
+    const threadActive = sampledThreadCounts.total
+      ? (sampledThreadCounts.active / sampledThreadCounts.total) * 100
+      : 0
+    // 综合趋势图共用同一条时间轴，保留最近 30 次 dashboard 快照即可覆盖实时波动。
+    speedSamples.value.push({
+      label: new Date().toLocaleTimeString(),
+      threadActive,
+      value: parseSpeed(normalizedStatus.speed),
+    })
     speedSamples.value = speedSamples.value.slice(-30)
   }, { immediate: true })
 
@@ -853,6 +865,7 @@ export function useDashboard() {
     setLogLevels,
     setLogSources,
     threadCounts,
+    threadActiveValues,
     threadRows,
     urlChartLabels,
     urlChartValues,
