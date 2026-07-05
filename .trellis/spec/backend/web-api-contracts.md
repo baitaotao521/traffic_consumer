@@ -79,6 +79,15 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
   z-index, so source order is the project-owned stacking contract.
 - Cron preview request is `{ "expression": "*/5 * * * *" }`, not the old `{ "cron_expr": ... }`.
 - Frontend server state belongs in Vue Query. Components must not handwrite API URLs or parse Huma Problem Details directly.
+- Dashboard production builds use Vite 8 / Rolldown configuration. Put bundle
+  output and warning hooks under `build.rolldownOptions`; `build.rollupOptions`
+  is only a deprecated compatibility alias.
+- The compiled dashboard must keep `/static/app/assets/app.js` as the HTML entry
+  script for the Go static page contract, but production JavaScript may be split
+  into additional `modulepreload` chunks.
+- Build-log filtering must be narrowly scoped by warning code and dependency.
+  Do not lower the global log level or drop every warning just to keep the
+  production build output clean.
 
 ### 4. Validation & Error Matrix
 
@@ -102,7 +111,7 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
   warning and does not open an overwrite confirmation dialog.
 - Base: dashboard polling reads one aggregate snapshot; activity polling reads logs and events through one cursor pair; config numeric fields stay as numeric model values from the number-field component until request encoding.
 - Base: pausing实时日志 must keep event polling active without advancing `after_log`; changing source/level filters should restart the log view from the buffered log set, not from a swallowed cursor.
-- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, bypasses the config editor guard, advances the log cursor while `include_logs=false`, uses `Input type="number"` and then trims/parses the form value by hand, or lets an async command confirmation auto-close before the mutation result is known.
+- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, bypasses the config editor guard, advances the log cursor while `include_logs=false`, uses `Input type="number"` and then trims/parses the form value by hand, lets an async command confirmation auto-close before the mutation result is known, hides all production build warnings through a broad logger override, or raises the chunk warning threshold instead of splitting an oversized dashboard bundle.
 
 ### 6. Tests Required
 
@@ -113,6 +122,8 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Runtime tests must assert that stopped immediate runs clear `PlanSummary.total_bytes_raw` and `download_count` while preserving `last_run`, and that scheduled runtime items remain registered after a trigger but also clear current-run row metrics.
 - Tests must assert old runtime routes are absent from OpenAPI and return `404`.
 - Frontend contract changes require `npm --prefix frontend run api:generate` and `npm --prefix frontend run build`.
+- Frontend build-configuration changes require `npm --prefix frontend run build`
+  and a log assertion for any warning class the task claims to remove.
 - Frontend command-confirmation changes must verify the dialog stays pending
   while the mutation is in flight, closes on success, and leaves a retry/cancel
   path on failure.
