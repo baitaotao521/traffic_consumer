@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ActivityIcon, FileTextIcon, GaugeIcon, ListChecksIcon } from '@lucide/vue'
 
+import AnimatedMetric from '@/components/dashboard/AnimatedMetric.vue'
 import { Card, CardAction, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -22,7 +23,7 @@ defineProps<{
         </CardAction>
       </CardHeader>
       <CardContent>
-        <div id="speed-text" class="text-2xl font-bold">{{ speed || '0 B/s' }}</div>
+        <div id="speed-text" class="truncate text-2xl font-bold">{{ speed || '0 B/s' }}</div>
       </CardContent>
     </Card>
 
@@ -34,7 +35,11 @@ defineProps<{
         </CardAction>
       </CardHeader>
       <CardContent>
-        <div id="total-bytes" class="text-2xl font-bold">{{ totalBytes || '0 B' }}</div>
+        <AnimatedMetric
+          id="total-bytes"
+          class="block truncate text-2xl font-bold tabular-nums"
+          :value="totalBytes || '0 B'"
+        />
       </CardContent>
     </Card>
 
@@ -46,7 +51,12 @@ defineProps<{
         </CardAction>
       </CardHeader>
       <CardContent>
-        <div id="download-count" class="text-2xl font-bold">{{ downloadCount || 0 }}</div>
+        <AnimatedMetric
+          id="download-count"
+          class="block truncate text-2xl font-bold tabular-nums"
+          :decimals="0"
+          :value="downloadCount || 0"
+        />
       </CardContent>
     </Card>
 
@@ -60,9 +70,12 @@ defineProps<{
       <CardContent>
         <Tooltip>
           <TooltipTrigger as-child>
-            <div id="current-config" class="truncate text-2xl font-bold">
-              {{ activeConfigCount || 0 }}
-            </div>
+            <AnimatedMetric
+              id="current-config"
+              class="block truncate text-2xl font-bold tabular-nums"
+              :decimals="0"
+              :value="activeConfigCount || 0"
+            />
           </TooltipTrigger>
           <TooltipContent>运行与调度中的配置</TooltipContent>
         </Tooltip>
