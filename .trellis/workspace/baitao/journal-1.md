@@ -268,3 +268,36 @@ Cleaned the production frontend build by splitting dashboard JavaScript into Rol
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Fix realtime aggregate charts
+
+**Date**: 2026-07-05
+**Task**: Fix realtime aggregate charts
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Corrected the realtime aggregate dashboard charts by separating current speed, thread activity, and URL distribution into component-library charts; committed the source changes and verified the frontend build.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eae78d3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
