@@ -215,7 +215,7 @@ export function planState(plan: PlanSummary): { label: string; variant: BadgeVar
 export function logLevelClass(level: string) {
   if (level === 'error') return 'text-destructive'
   if (level === 'warning') return 'text-primary'
-  if (level === 'success') return 'text-emerald-600'
+  if (level === 'success') return 'text-success'
   return 'text-muted-foreground'
 }
 

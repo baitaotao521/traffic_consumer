@@ -38,34 +38,6 @@ export default defineConfig({
           return 'assets/[name][extname]'
         },
         chunkFileNames: 'assets/[name].js',
-        codeSplitting: {
-          groups: [
-            {
-              name: 'charts',
-              test: /node_modules[\\/]@unovis[\\/]/,
-              priority: 4,
-            },
-            {
-              name: 'vue-vendor',
-              test: /node_modules[\\/](@vue|@vueuse|vue)[\\/]/,
-              priority: 3,
-            },
-            {
-              name: 'data-vendor',
-              test: /node_modules[\\/]@tanstack[\\/]/,
-              priority: 2,
-            },
-            {
-              name: 'ui-vendor',
-              test: /node_modules[\\/](@lucide|class-variance-authority|clsx|reka-ui|tailwind-merge|vue-sonner)[\\/]/,
-              priority: 1,
-            },
-            {
-              name: 'vendor',
-              test: /node_modules[\\/]/,
-            },
-          ],
-        },
         entryFileNames: 'assets/app.js',
       },
     },

@@ -149,7 +149,7 @@ function handleOpenUpdate(nextOpen: boolean) {
 
                   <div class="grid gap-4 sm:grid-cols-2">
                     <Field :data-invalid="hasError('threads') ? true : undefined">
-                      <FieldLabel>线程数量</FieldLabel>
+                      <FieldLabel for="config-threads">线程数量</FieldLabel>
                       <NumberField
                         v-model="form.threads"
                         v-bind="integerNumberFieldProps"
@@ -158,6 +158,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                         <NumberFieldContent class="w-full">
                           <NumberFieldDecrement />
                           <NumberFieldInput
+                            id="config-threads"
                             :aria-invalid="hasError('threads') || undefined"
                             :class="numberFieldInputClass"
                           />
@@ -245,7 +246,7 @@ function handleOpenUpdate(nextOpen: boolean) {
               <CardContent class="py-4">
                 <FieldGroup class="grid gap-4 sm:grid-cols-2">
                   <Field :data-invalid="hasError('limit_speed') ? true : undefined">
-                    <FieldLabel>限速 (MB/s)</FieldLabel>
+                    <FieldLabel for="config-limit-speed">限速 (MB/s)</FieldLabel>
                     <NumberField
                       v-model="form.limit_speed"
                       v-bind="decimalNumberFieldProps"
@@ -254,6 +255,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
                         <NumberFieldInput
+                          id="config-limit-speed"
                           :aria-invalid="hasError('limit_speed') || undefined"
                           :class="numberFieldInputClass"
                         />
@@ -263,7 +265,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                     <FieldError :errors="errors.limit_speed" />
                   </Field>
                   <Field :data-invalid="hasError('traffic_limit') ? true : undefined">
-                    <FieldLabel>总流量 (MB)</FieldLabel>
+                    <FieldLabel for="config-traffic-limit">总流量 (MB)</FieldLabel>
                     <NumberField
                       v-model="form.traffic_limit"
                       v-bind="integerNumberFieldProps"
@@ -272,6 +274,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
                         <NumberFieldInput
+                          id="config-traffic-limit"
                           :aria-invalid="hasError('traffic_limit') || undefined"
                           :class="numberFieldInputClass"
                         />
@@ -281,7 +284,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                     <FieldError :errors="errors.traffic_limit" />
                   </Field>
                   <Field :data-invalid="hasError('duration') ? true : undefined">
-                    <FieldLabel>时长 (秒)</FieldLabel>
+                    <FieldLabel for="config-duration">时长 (秒)</FieldLabel>
                     <NumberField
                       v-model="form.duration"
                       v-bind="integerNumberFieldProps"
@@ -290,6 +293,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
                         <NumberFieldInput
+                          id="config-duration"
                           :aria-invalid="hasError('duration') || undefined"
                           :class="numberFieldInputClass"
                         />
@@ -299,7 +303,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                     <FieldError :errors="errors.duration" />
                   </Field>
                   <Field :data-invalid="hasError('count') ? true : undefined">
-                    <FieldLabel>下载次数</FieldLabel>
+                    <FieldLabel for="config-count">下载次数</FieldLabel>
                     <NumberField
                       v-model="form.count"
                       v-bind="integerNumberFieldProps"
@@ -308,6 +312,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
                         <NumberFieldInput
+                          id="config-count"
                           :aria-invalid="hasError('count') || undefined"
                           :class="numberFieldInputClass"
                         />
@@ -317,7 +322,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                     <FieldError :errors="errors.count" />
                   </Field>
                   <Field :data-invalid="hasError('url_switch_interval') ? true : undefined">
-                    <FieldLabel>URL 切换时限 (秒)</FieldLabel>
+                    <FieldLabel for="config-url-switch-interval">URL 切换时限 (秒)</FieldLabel>
                     <NumberField
                       v-model="form.url_switch_interval"
                       v-bind="decimalNumberFieldProps"
@@ -326,6 +331,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
                         <NumberFieldInput
+                          id="config-url-switch-interval"
                           :aria-invalid="hasError('url_switch_interval') || undefined"
                           :class="numberFieldInputClass"
                         />
@@ -338,7 +344,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                     <FieldError :errors="errors.url_switch_interval" />
                   </Field>
                   <Field :data-invalid="hasError('thread_start_delay') ? true : undefined">
-                    <FieldLabel>线程启动间隔 (秒)</FieldLabel>
+                    <FieldLabel for="config-thread-start-delay">线程启动间隔 (秒)</FieldLabel>
                     <NumberField
                       v-model="form.thread_start_delay"
                       v-bind="decimalNumberFieldProps"
@@ -347,6 +353,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
                         <NumberFieldInput
+                          id="config-thread-start-delay"
                           :aria-invalid="hasError('thread_start_delay') || undefined"
                           :class="numberFieldInputClass"
                         />
@@ -371,7 +378,7 @@ function handleOpenUpdate(nextOpen: boolean) {
               <CardContent class="grid gap-4 py-4">
                 <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                   <Field :data-invalid="hasError('interval') ? true : undefined">
-                    <FieldLabel>间隔 (分钟)</FieldLabel>
+                    <FieldLabel for="config-interval">间隔 (分钟)</FieldLabel>
                     <NumberField
                       v-model="form.interval"
                       v-bind="integerNumberFieldProps"
@@ -380,6 +387,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
                         <NumberFieldInput
+                          id="config-interval"
                           :aria-invalid="hasError('interval') || undefined"
                           :class="numberFieldInputClass"
                         />

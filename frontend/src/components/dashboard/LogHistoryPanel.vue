@@ -161,34 +161,68 @@ watch(
         </TabsContent>
 
         <TabsContent value="history" class="m-0">
-          <Table>
-            <TableHeader class="bg-muted">
-              <TableRow>
-                <TableHead>计划</TableHead>
-                <TableHead>下次执行</TableHead>
-                <TableHead>任务流量</TableHead>
-                <TableHead class="text-right">下载数</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableEmpty v-if="!plans.length" :colspan="4" class="py-0">
-                <Empty class="p-0">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <HistoryIcon />
-                    </EmptyMedia>
-                    <EmptyTitle>暂无调度历史</EmptyTitle>
-                  </EmptyHeader>
-                </Empty>
-              </TableEmpty>
-              <TableRow v-for="plan in plans" :key="`history-${plan.name}`">
-                <TableCell>{{ plan.name }}</TableCell>
-                <TableCell>{{ formatDateTime(plan.next_run_time) }}</TableCell>
-                <TableCell>{{ plan.total_bytes }}</TableCell>
-                <TableCell class="text-right">{{ plan.download_count }}</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+          <div class="md:hidden">
+            <div v-if="!plans.length" class="p-6">
+              <Empty class="p-0">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <HistoryIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>暂无调度历史</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+            </div>
+            <div v-else class="divide-y">
+              <div v-for="plan in plans" :key="`mobile-history-${plan.name}`" class="grid gap-2 px-4 py-3 text-sm">
+                <div class="truncate font-medium">{{ plan.name }}</div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div class="text-muted-foreground">下次执行</div>
+                    <div class="font-medium">{{ formatDateTime(plan.next_run_time) }}</div>
+                  </div>
+                  <div>
+                    <div class="text-muted-foreground">下载数</div>
+                    <div class="font-mono font-medium tabular-nums">{{ plan.download_count || 0 }}</div>
+                  </div>
+                  <div class="col-span-2">
+                    <div class="text-muted-foreground">任务流量</div>
+                    <div class="font-mono font-medium tabular-nums">{{ plan.total_bytes || '0 B' }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="hidden md:block">
+            <Table>
+              <TableHeader class="bg-muted">
+                <TableRow>
+                  <TableHead>计划</TableHead>
+                  <TableHead>下次执行</TableHead>
+                  <TableHead>任务流量</TableHead>
+                  <TableHead class="text-right">下载数</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableEmpty v-if="!plans.length" :colspan="4" class="py-0">
+                  <Empty class="p-0">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <HistoryIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>暂无调度历史</EmptyTitle>
+                    </EmptyHeader>
+                  </Empty>
+                </TableEmpty>
+                <TableRow v-for="plan in plans" :key="`history-${plan.name}`">
+                  <TableCell>{{ plan.name }}</TableCell>
+                  <TableCell>{{ formatDateTime(plan.next_run_time) }}</TableCell>
+                  <TableCell>{{ plan.total_bytes }}</TableCell>
+                  <TableCell class="text-right">{{ plan.download_count }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
       </CardContent>
     </Tabs>

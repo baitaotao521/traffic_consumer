@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 
-import ConfirmActionDialog from '@/components/dashboard/ConfirmActionDialog.vue'
-import ConfigSheet from '@/components/dashboard/ConfigSheet.vue'
 import KpiGrid from '@/components/dashboard/KpiGrid.vue'
 import LogHistoryPanel from '@/components/dashboard/LogHistoryPanel.vue'
-import PlanDetailDialog from '@/components/dashboard/PlanDetailDialog.vue'
 import PlanPanel from '@/components/dashboard/PlanPanel.vue'
 import SpeedPanel from '@/components/dashboard/SpeedPanel.vue'
 import ThreadPanel from '@/components/dashboard/ThreadPanel.vue'
@@ -14,6 +11,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useDashboard } from '@/composables/useDashboard'
+
+// 配置编辑、计划详情和确认动作只在用户触发后出现，避免首屏等待弹层依赖。
+const ConfigSheet = defineAsyncComponent(() => import('@/components/dashboard/ConfigSheet.vue'))
+const PlanDetailDialog = defineAsyncComponent(() => import('@/components/dashboard/PlanDetailDialog.vue'))
+const ConfirmActionDialog = defineAsyncComponent(() => import('@/components/dashboard/ConfirmActionDialog.vue'))
 
 const dashboard = useDashboard()
 
@@ -135,6 +137,7 @@ const hasScheduler = computed(() => {
       />
 
       <ConfigSheet
+        v-if="dashboard.editorOpen.value"
         v-model:open="dashboard.editorOpen.value"
         :cron-preview="dashboard.cronPreview.value"
         :errors="dashboard.editorValidationErrors.value"
@@ -151,12 +154,14 @@ const hasScheduler = computed(() => {
       />
 
       <PlanDetailDialog
+        v-if="dashboard.planDialogOpen.value"
         v-model:open="dashboard.planDialogOpen.value"
         :format-date-time="dashboard.formatDateTime"
         :plan-detail="dashboard.selectedPlanDetail.value"
       />
 
       <ConfirmActionDialog
+        v-if="dashboard.confirmDialogOpen.value"
         v-model:open="dashboard.confirmDialogOpen.value"
         :confirm-label="dashboard.confirmDialogActionLabel.value"
         :description="dashboard.confirmDialogDescription.value"

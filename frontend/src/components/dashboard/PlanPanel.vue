@@ -35,7 +35,100 @@ defineEmits<{
       </div>
     </CardHeader>
     <CardContent class="p-0">
-      <ScrollArea class="h-[378px]">
+      <div class="md:hidden">
+        <div v-if="!plans.length" class="p-6">
+          <Empty class="p-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <CalendarDaysIcon />
+              </EmptyMedia>
+              <EmptyTitle>暂无配置</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
+        </div>
+        <div v-else class="divide-y">
+          <div v-for="plan in plans" :key="`mobile-${plan.name}`" class="grid gap-3 px-4 py-3">
+            <div class="flex min-w-0 items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="truncate font-medium">{{ plan.name }}</div>
+                <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ formatPlanSchedule(plan) }}</div>
+              </div>
+              <Badge :variant="planState(plan).variant">{{ planState(plan).label }}</Badge>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div>
+                <div class="text-muted-foreground">速度</div>
+                <div class="font-mono font-medium tabular-nums">{{ plan.speed || '0 B/s' }}</div>
+              </div>
+              <div>
+                <div class="text-muted-foreground">流量</div>
+                <div class="font-mono font-medium tabular-nums">{{ plan.total_bytes || '0 B' }}</div>
+              </div>
+              <div>
+                <div class="text-muted-foreground">下载</div>
+                <div class="font-mono font-medium tabular-nums">{{ plan.download_count || 0 }}</div>
+              </div>
+              <div>
+                <div class="text-muted-foreground">线程</div>
+                <div class="font-mono font-medium tabular-nums">{{ plan.threads || 0 }}</div>
+              </div>
+              <div>
+                <div class="text-muted-foreground">链接</div>
+                <div class="font-mono font-medium tabular-nums">{{ plan.url_count || 0 }}</div>
+              </div>
+              <div>
+                <div class="text-muted-foreground">下次执行</div>
+                <div class="truncate font-medium">{{ formatDateTime(plan.next_run_time) }}</div>
+              </div>
+            </div>
+
+            <div class="text-xs">
+              <span class="text-muted-foreground">上次运行</span>
+              <span v-if="plan.last_run" class="ml-1">
+                {{ plan.last_run.result || '成功' }} · {{ plan.last_run.bytes_consumed || '0 B' }}
+              </span>
+              <span v-else class="ml-1 text-muted-foreground">无</span>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+              <Button class="flex-1 sm:flex-none" size="xs" variant="outline" @click="$emit('openPlanDetail', plan)">
+                <ListChecksIcon data-icon="inline-start" />
+                详情
+              </Button>
+              <Button class="flex-1 sm:flex-none" size="xs" variant="outline" @click="$emit('editPlan', plan)">
+                <PencilIcon data-icon="inline-start" />
+                编辑
+              </Button>
+              <Button
+                class="flex-1 sm:flex-none"
+                size="xs"
+                :disabled="plan.running || plan.scheduler_running"
+                @click="$emit('startPlan', plan)"
+              >
+                <PlayIcon data-icon="inline-start" />
+                启动
+              </Button>
+              <Button
+                class="flex-1 sm:flex-none"
+                size="xs"
+                variant="outline"
+                :disabled="!plan.running && !plan.scheduler_running"
+                @click="$emit('stopPlan', plan)"
+              >
+                <SquareIcon data-icon="inline-start" />
+                停止
+              </Button>
+              <Button class="flex-1 sm:flex-none" size="xs" variant="destructive" @click="$emit('deletePlan', plan)">
+                <Trash2Icon data-icon="inline-start" />
+                删除
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ScrollArea class="hidden h-[378px] md:block">
         <Table class="min-w-[1220px]">
           <TableHeader class="bg-muted">
             <TableRow>

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { RefreshCwIcon } from '@lucide/vue'
 
-import DashboardChart from '@/components/DashboardChart.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { URLUsageStat } from '@/types'
+
+const DashboardChart = defineAsyncComponent(() => import('@/components/DashboardChart.vue'))
 
 const props = defineProps<{
   /** 当前速度保留后端格式化文案，避免综合指数替代真实单位。 */
@@ -118,15 +120,20 @@ const urlDistributionRows = computed(() => {
               <span class="font-medium">当前速度</span>
               <span class="font-mono font-medium tabular-nums">{{ currentSpeedLabel }}</span>
             </div>
-            <DashboardChart
-              chart-id="aggregate-speed-chart"
-              type="line"
-              label="当前速度"
-              :labels="labels"
-              :value-formatter="formatSpeedValue"
-              :values="speedChartValues"
-              :height="210"
-            />
+            <Suspense>
+              <DashboardChart
+                chart-id="aggregate-speed-chart"
+                type="line"
+                label="当前速度"
+                :labels="labels"
+                :value-formatter="formatSpeedValue"
+                :values="speedChartValues"
+                :height="210"
+              />
+              <template #fallback>
+                <Skeleton class="h-[210px] w-full" />
+              </template>
+            </Suspense>
           </section>
 
           <section class="grid min-w-0 gap-2">
@@ -134,17 +141,22 @@ const urlDistributionRows = computed(() => {
               <span class="font-medium">线程活跃</span>
               <span class="font-mono font-medium tabular-nums">{{ threadActiveLabel }}</span>
             </div>
-            <DashboardChart
-              chart-id="aggregate-thread-chart"
-              type="line"
-              label="线程活跃"
-              :colors="['--chart-2']"
-              :labels="labels"
-              :value-formatter="formatPercentValue"
-              :values="threadActiveChartValues"
-              :height="150"
-              :y-max="100"
-            />
+            <Suspense>
+              <DashboardChart
+                chart-id="aggregate-thread-chart"
+                type="line"
+                label="线程活跃"
+                :colors="['--chart-2']"
+                :labels="labels"
+                :value-formatter="formatPercentValue"
+                :values="threadActiveChartValues"
+                :height="150"
+                :y-max="100"
+              />
+              <template #fallback>
+                <Skeleton class="h-[150px] w-full" />
+              </template>
+            </Suspense>
           </section>
         </div>
 
@@ -153,16 +165,21 @@ const urlDistributionRows = computed(() => {
             URL 分布
           </div>
           <div class="w-full max-w-[240px]">
-            <DashboardChart
-              chart-id="aggregate-url-pie-chart"
-              type="doughnut"
-              label="URL"
-              sub-label="次数 / 占比"
-              :labels="urlChartLabels"
-              :value-formatter="formatDownloadCount"
-              :values="urlChartValues"
-              :height="240"
-            />
+            <Suspense>
+              <DashboardChart
+                chart-id="aggregate-url-pie-chart"
+                type="doughnut"
+                label="URL"
+                sub-label="次数 / 占比"
+                :labels="urlChartLabels"
+                :value-formatter="formatDownloadCount"
+                :values="urlChartValues"
+                :height="240"
+              />
+              <template #fallback>
+                <Skeleton class="h-[240px] w-full" />
+              </template>
+            </Suspense>
           </div>
           <div v-if="urlDistributionRows.length" class="grid max-h-40 w-full gap-2 overflow-auto pr-1 text-xs">
             <div

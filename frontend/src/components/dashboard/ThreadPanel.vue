@@ -22,7 +22,42 @@ defineProps<{
       <CardTitle>线程状态监控</CardTitle>
     </CardHeader>
     <CardContent class="p-0">
-      <ScrollArea class="h-[300px]">
+      <div class="md:hidden">
+        <div v-if="!threadRows.length" class="p-6">
+          <Empty class="p-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ListIcon />
+              </EmptyMedia>
+              <EmptyTitle>暂无线程数据</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
+        </div>
+        <div v-else class="divide-y">
+          <div v-for="row in threadRows" :key="`mobile-thread-${row.id}`" class="grid gap-3 px-4 py-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="font-medium">线程 {{ row.id }}</div>
+              <Badge :variant="row.state === 'active' ? 'default' : row.state === 'error' ? 'destructive' : 'secondary'">
+                {{ row.label }}
+              </Badge>
+            </div>
+            <div class="break-all text-xs text-muted-foreground">{{ row.url }}</div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <div class="text-muted-foreground">响应时间</div>
+                <div class="font-mono font-medium tabular-nums">{{ row.responseTime }}</div>
+              </div>
+              <div>
+                <div class="text-muted-foreground">进度</div>
+                <div class="font-mono font-medium tabular-nums">{{ row.progressLabel }}</div>
+              </div>
+            </div>
+            <Progress class="h-1.5" :model-value="row.progress" />
+          </div>
+        </div>
+      </div>
+
+      <ScrollArea class="hidden h-[300px] md:block">
         <Table>
           <TableHeader class="bg-muted">
             <TableRow>
@@ -72,7 +107,7 @@ defineProps<{
           </TableBody>
         </Table>
       </ScrollArea>
-      <div class="grid grid-cols-4 gap-3 border-t px-4 py-3 text-xs">
+      <div class="grid grid-cols-2 gap-3 border-t px-4 py-3 text-xs sm:grid-cols-4">
         <div>总线程 <span class="ml-1 font-semibold">{{ threadCounts.total }}</span></div>
         <div>活跃 <span id="active-thread-count" class="ml-1 font-semibold">{{ threadCounts.active }}</span></div>
         <div>待命 <span id="idle-thread-count" class="ml-1 font-semibold">{{ threadCounts.idle }}</span></div>

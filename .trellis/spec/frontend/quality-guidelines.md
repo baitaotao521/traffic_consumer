@@ -50,6 +50,12 @@ npm --prefix frontend run build
 - Use `Skeleton` and `Spinner` for loading states.
 - Use lucide icons from `@lucide/vue`, with `data-icon` inside buttons.
 - Use semantic theme tokens from `src/style.css`.
+- Keep Vite/Rolldown bundle splitting automatic. Use dynamic imports such as
+  `defineAsyncComponent(() => import(...))` for heavy charts and user-triggered
+  dialogs instead of maintaining `output.codeSplitting.groups`.
+- Gate async dialog components by their open state (`v-if="dialogOpen"`). An
+  async component rendered unconditionally will load immediately, so the split
+  will not reduce the first dashboard render.
 - Add business comments near non-obvious state flow, compatibility behavior,
   async confirmation timing, cursor handling, and validation semantics.
 
@@ -109,6 +115,10 @@ comment because it lies with confidence, which is rude and technically ugly.
 - Hiding all Vite/Rolldown warnings to quiet one known warning.
 - Raising chunk-size thresholds instead of splitting a genuinely oversized
   bundle.
+- Reintroducing hand-maintained vendor chunks such as `vue-vendor`,
+  `data-vendor`, `ui-vendor`, or a catch-all manual `vendor` group. Prefer
+  dynamic-import boundaries and let the bundler choose the generated chunk
+  layout.
 - Hand-editing `frontend/dist/**`.
 
 ---

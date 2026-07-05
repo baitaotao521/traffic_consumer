@@ -52,6 +52,12 @@ const selectedConfigLabel = computed(() => {
   return configOptions.value.find((option) => option.value === props.selectedConfigName)?.label
     ?? props.selectedConfigName
 })
+const statusDotClass = computed(() => {
+  if (props.statusVariant === 'default') return 'bg-status-running'
+  if (props.statusVariant === 'secondary') return 'bg-status-scheduled'
+  if (props.statusVariant === 'destructive') return 'bg-destructive'
+  return 'bg-status-stopped'
+})
 
 function handleConfigSelect(value: string) {
   emit('update:selectedConfigName', value)
@@ -65,7 +71,7 @@ function handleConfigSelect(value: string) {
       <div class="flex min-w-0 flex-wrap items-center gap-3">
         <h1 class="text-base font-semibold">Traffic Consumer</h1>
         <Badge :variant="statusVariant" class="gap-1.5">
-          <span class="size-1.5 rounded-full bg-destructive" />
+          <span :class="cn('size-1.5 rounded-full', statusDotClass)" />
           {{ statusLabel }}
         </Badge>
         <Popover v-model:open="open">

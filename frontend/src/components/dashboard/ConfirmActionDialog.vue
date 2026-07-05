@@ -57,7 +57,7 @@ defineEmits<{
           :disabled="pending"
           @click="$emit('confirm')"
         >
-          <Spinner v-if="pending" />
+          <Spinner v-if="pending" data-icon="inline-start" />
           {{ confirmLabel }}
         </Button>
       </AlertDialogFooter>
