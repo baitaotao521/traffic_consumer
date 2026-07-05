@@ -61,9 +61,12 @@ defineProps<{
                   </HoverCardContent>
                 </HoverCard>
               </TableCell>
-              <TableCell>--</TableCell>
+              <TableCell>{{ row.responseTime }}</TableCell>
               <TableCell>
-                <Progress :model-value="row.state === 'active' ? 100 : row.state === 'error' ? 20 : 0" />
+                <div class="flex items-center gap-2">
+                  <Progress class="h-1.5 flex-1" :model-value="row.progress" />
+                  <span class="w-12 text-right text-xs text-muted-foreground">{{ row.progressLabel }}</span>
+                </div>
               </TableCell>
             </TableRow>
           </TableBody>

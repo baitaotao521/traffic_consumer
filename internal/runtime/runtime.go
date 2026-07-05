@@ -279,7 +279,7 @@ func (m *Manager) StartConsumer(cfg model.Config) (model.StatusPayload, error) {
 		message = fmt.Sprintf("配置 \"%s\" 已启动，当前等待调度执行。", name)
 	}
 	m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: stateVariant(state), Message: message, Config: name})
-	return model.StatusPayload{Running: true, State: state, Config: name, Message: message, ThreadStatus: map[int]string{}, URLUsageStats: []model.URLUsageStat{}}, nil
+	return model.StatusPayload{Running: true, State: state, Config: name, Message: message, ThreadStatus: map[int]string{}, ThreadMetrics: map[int]model.ThreadMetric{}, URLUsageStats: []model.URLUsageStat{}}, nil
 }
 
 // StartTempTest 使用当前配置执行最多 100MB 的立即验证。
@@ -332,7 +332,7 @@ func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
 	message := fmt.Sprintf("已开始临时测试验证配置 \"%s\"，本次最多下载 %d MB。", name, limit)
 	m.addRuntimeLog(name, "info", message)
 	m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "success", Message: message, Config: name})
-	return model.StatusPayload{Running: true, State: model.StateRunning, Config: name, Message: message, ThreadStatus: map[int]string{}, URLUsageStats: []model.URLUsageStat{}}, nil
+	return model.StatusPayload{Running: true, State: model.StateRunning, Config: name, Message: message, ThreadStatus: map[int]string{}, ThreadMetrics: map[int]model.ThreadMetric{}, URLUsageStats: []model.URLUsageStat{}}, nil
 }
 
 // StopAll 停止所有下载与调度。
@@ -458,10 +458,11 @@ func (m *Manager) Status() model.StatusPayload {
 	}
 
 	threadStatus := map[int]string{}
+	threadMetrics := map[int]model.ThreadMetric{}
 	urlUsageStats := []model.URLUsageStat{}
-	if snapshot.focus != nil && snapshot.focus.Consumer.IsActive() {
-		item := snapshot.focus
-		threadStatus = item.Consumer.URLMgr.ThreadSnapshot(item.Config.Threads)
+	if len(snapshot.active) > 0 {
+		threadStatus, threadMetrics = buildThreadSnapshots(snapshot.active)
+		item := snapshot.active[0]
 		urlUsageStats = buildURLUsageStats(item.Consumer.URLMgr.URLs(), item.Consumer.URLMgr.UsageSnapshot())
 	}
 	configLabel := strings.Join(activeConfigs, ", ")
@@ -477,8 +478,30 @@ func (m *Manager) Status() model.StatusPayload {
 		Config:        configLabel,
 		ThreadCount:   threadCount,
 		ThreadStatus:  threadStatus,
+		ThreadMetrics: threadMetrics,
 		URLUsageStats: urlUsageStats,
 	}
+}
+
+func buildThreadSnapshots(items []*Item) (map[int]string, map[int]model.ThreadMetric) {
+	status := map[int]string{}
+	metrics := map[int]model.ThreadMetric{}
+	offset := 0
+	for _, item := range items {
+		if item == nil || !item.Consumer.IsActive() {
+			continue
+		}
+		itemStatus := item.Consumer.URLMgr.ThreadSnapshot(item.Config.Threads)
+		itemMetrics := item.Consumer.URLMgr.ThreadMetricSnapshot(item.Config.Threads)
+		for threadID := 1; threadID <= item.Config.Threads; threadID++ {
+			// 多配置并行运行时，各配置内部都从线程 1 开始编号；聚合表按配置顺序展开，避免后一个任务覆盖前一个任务。
+			rowID := offset + threadID
+			status[rowID] = itemStatus[threadID]
+			metrics[rowID] = itemMetrics[threadID]
+		}
+		offset += item.Config.Threads
+	}
+	return status, metrics
 }
 
 // SchedulerStatus 返回调度和计划列表。

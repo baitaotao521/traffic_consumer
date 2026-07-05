@@ -160,6 +160,121 @@ func TestStartConsumerAllowsMultipleConfigRuns(t *testing.T) {
 	})
 }
 
+func TestStatusAggregatesThreadSnapshotsForMultipleActiveConfigs(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownloads := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	newBlockingServer := func(payload string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Length", "4")
+			_, _ = w.Write([]byte(payload[:2]))
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			<-release
+			_, _ = w.Write([]byte(payload[2:]))
+		}))
+	}
+	serverOne := newBlockingServer("one!")
+	serverTwo := newBlockingServer("two!")
+	defer func() {
+		releaseDownloads()
+		serverOne.Close()
+		serverTwo.Close()
+	}()
+
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() {
+		releaseDownloads()
+		manager.StopAll()
+	})
+
+	count := int64(1)
+	for name, url := range map[string]string{"one": serverOne.URL, "two": serverTwo.URL} {
+		if _, err := manager.StartConsumer(model.Config{
+			ConfigName:  name,
+			URLs:        []string{url},
+			Threads:     1,
+			Count:       &count,
+			URLStrategy: "round_robin",
+		}); err != nil {
+			t.Fatalf("start %s: %v", name, err)
+		}
+	}
+
+	var status model.StatusPayload
+	waitUntilWithMessage(t, 3*time.Second, func() bool {
+		status = manager.Status()
+		return status.ThreadCount == 2 &&
+			status.ThreadStatus[1] == serverOne.URL &&
+			status.ThreadStatus[2] == serverTwo.URL &&
+			status.ThreadMetrics[1].URL == serverOne.URL &&
+			status.ThreadMetrics[2].URL == serverTwo.URL
+	}, func() string {
+		return fmt.Sprintf("status=%+v", status)
+	})
+}
+
+func TestStatusIncludesThreadResponseTimeAndProgress(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("ok"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("!!"))
+	}))
+	defer func() {
+		releaseDownload()
+		server.Close()
+	}()
+
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() {
+		releaseDownload()
+		manager.StopAll()
+	})
+
+	count := int64(1)
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		Count:       &count,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start demo: %v", err)
+	}
+
+	var status model.StatusPayload
+	waitUntilWithMessage(t, 3*time.Second, func() bool {
+		status = manager.Status()
+		metric := status.ThreadMetrics[1]
+		return status.ThreadStatus[1] == server.URL &&
+			metric.ResponseTimeMS > 0 &&
+			metric.BytesRead >= 2 &&
+			metric.ContentLength == 4 &&
+			metric.Progress > 0 &&
+			metric.Progress < 100
+	}, func() string {
+		return fmt.Sprintf("status=%+v", status)
+	})
+}
+
 func TestStartConsumerRejectsDuplicateActiveConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))

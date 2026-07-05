@@ -6,12 +6,14 @@ import type {
   PlanSummary,
   SchedulerPayload,
   StatusPayload,
+  ThreadMetric,
   UrlUsageStat,
 } from '@/api/generated'
 
 export type RuntimeState = 'running' | 'scheduled' | 'stopped'
 
 export type ConfigPayload = ConfigWritable
+export type ThreadMetricPayload = ThreadMetric
 export type URLUsageStat = UrlUsageStat
 export type { HistoryRecord, LogEntry, PlanSummary, SchedulerPayload, StatusPayload }
 
@@ -20,10 +22,20 @@ export type PlanDetailView = Omit<PlanDetailPayload, 'history'> & {
 }
 
 export interface ThreadRow {
+  /** 线程编号，对应后端下载 goroutine 的业务序号。 */
   id: number
+  /** 当前任务展示旧状态字符串中的 URL 或异常状态。 */
   url: string
+  /** 线程状态决定徽标文案和异常计数。 */
   state: 'active' | 'idle' | 'error'
+  /** 线程状态徽标直接展示给用户的短文案。 */
   label: string
+  /** 响应头返回耗时的展示值，尚未发起请求时为空占位。 */
+  responseTime: string
+  /** 响应体读取进度百分比，未知长度时保持 0。 */
+  progress: number
+  /** 进度列直接展示给用户的短文案。 */
+  progressLabel: string
 }
 
 export interface ThreadCounts {

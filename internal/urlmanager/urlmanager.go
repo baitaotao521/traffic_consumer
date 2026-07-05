@@ -3,6 +3,7 @@ package urlmanager
 import (
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/baitaotao521/traffic_consumer/internal/model"
 )
@@ -12,13 +13,15 @@ type InvalidCallback func(model.Event)
 
 // Manager 负责 URL 选择、线程分配、失效标记和使用统计。
 type Manager struct {
-	mu            sync.Mutex
-	urls          []string
-	strategy      string
-	maxRetries    int
-	invalid       map[string]bool
-	usage         map[string]int64
-	threadStatus  map[int]string
+	mu           sync.Mutex
+	urls         []string
+	strategy     string
+	maxRetries   int
+	invalid      map[string]bool
+	usage        map[string]int64
+	threadStatus map[int]string
+	// threadMetrics 保存线程当前响应耗时和响应体读取进度，供 Web 线程表实时刷新。
+	threadMetrics map[int]model.ThreadMetric
 	weights       []float64
 	roundRobinPos int
 	callback      InvalidCallback
@@ -39,14 +42,15 @@ func New(urls []string, strategy string, maxRetries int, callback InvalidCallbac
 		strategy = "random"
 	}
 	return &Manager{
-		urls:         cleanURLs,
-		strategy:     strategy,
-		maxRetries:   maxRetries,
-		invalid:      map[string]bool{},
-		usage:        usage,
-		threadStatus: map[int]string{},
-		weights:      weights,
-		callback:     callback,
+		urls:          cleanURLs,
+		strategy:      strategy,
+		maxRetries:    maxRetries,
+		invalid:       map[string]bool{},
+		usage:         usage,
+		threadStatus:  map[int]string{},
+		threadMetrics: map[int]model.ThreadMetric{},
+		weights:       weights,
+		callback:      callback,
 	}
 }
 
@@ -62,6 +66,7 @@ func (m *Manager) ResetRuntimeState() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.threadStatus = map[int]string{}
+	m.threadMetrics = map[int]model.ThreadMetric{}
 	m.usage = map[string]int64{}
 	for _, url := range m.urls {
 		m.usage[url] = 0
@@ -79,6 +84,17 @@ func (m *Manager) ThreadSnapshot(total int) map[int]string {
 			value = "等待中..."
 		}
 		snapshot[i] = value
+	}
+	return snapshot
+}
+
+// ThreadMetricSnapshot 返回线程响应耗时和读取进度，缺失线程使用空快照。
+func (m *Manager) ThreadMetricSnapshot(total int) map[int]model.ThreadMetric {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	snapshot := make(map[int]model.ThreadMetric, total)
+	for i := 1; i <= total; i++ {
+		snapshot[i] = m.threadMetrics[i]
 	}
 	return snapshot
 }
@@ -108,6 +124,46 @@ func (m *Manager) SetThreadStatus(threadID int, message string) {
 	m.threadStatus[threadID] = message
 }
 
+// RecordThreadResponse 记录线程本次请求拿到响应头所需时间和响应体长度。
+func (m *Manager) RecordThreadResponse(threadID int, responseTime time.Duration, contentLength int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	metric := m.threadMetrics[threadID]
+	metric.ResponseTimeMS = durationMillis(responseTime)
+	if contentLength > 0 {
+		metric.ContentLength = contentLength
+	} else {
+		metric.ContentLength = 0
+	}
+	metric.Progress = progressPercent(metric.BytesRead, metric.ContentLength)
+	m.threadMetrics[threadID] = metric
+}
+
+// RecordThreadProgress 累计线程当前响应体已读取字节并刷新百分比。
+func (m *Manager) RecordThreadProgress(threadID int, bytesRead int64) {
+	if bytesRead <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	metric := m.threadMetrics[threadID]
+	metric.BytesRead += bytesRead
+	metric.Progress = progressPercent(metric.BytesRead, metric.ContentLength)
+	m.threadMetrics[threadID] = metric
+}
+
+// CompleteThreadProgress 在一个完整响应读完后把当前响应进度固定为 100%。
+func (m *Manager) CompleteThreadProgress(threadID int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	metric := m.threadMetrics[threadID]
+	if metric.ContentLength > 0 && metric.BytesRead < metric.ContentLength {
+		metric.BytesRead = metric.ContentLength
+	}
+	metric.Progress = 100
+	m.threadMetrics[threadID] = metric
+}
+
 // GetURLForThread 根据当前策略为线程分配 URL。
 func (m *Manager) GetURLForThread(threadID int) string {
 	m.mu.Lock()
@@ -131,6 +187,8 @@ func (m *Manager) GetURLForThread(threadID int) string {
 		selected = available[0]
 	}
 	m.threadStatus[threadID] = selected
+	// 新响应开始时重置读取进度，旧状态字符串继续负责当前任务展示。
+	m.threadMetrics[threadID] = model.ThreadMetric{URL: selected}
 	return selected
 }
 
@@ -149,6 +207,9 @@ func (m *Manager) MarkInvalid(url string, errorDetail string) bool {
 	for threadID, assigned := range m.threadStatus {
 		if assigned == url {
 			m.threadStatus[threadID] = url + " (已失效)"
+			metric := m.threadMetrics[threadID]
+			metric.URL = url
+			m.threadMetrics[threadID] = metric
 		}
 	}
 	for idx, value := range m.urls {
@@ -212,6 +273,9 @@ func (m *Manager) RemoveURL(url string) bool {
 	for threadID, assigned := range m.threadStatus {
 		if assigned == url || len(assigned) >= len(url) && assigned[:len(url)] == url {
 			m.threadStatus[threadID] = url + " (已移除)"
+			metric := m.threadMetrics[threadID]
+			metric.URL = url
+			m.threadMetrics[threadID] = metric
 		}
 	}
 	if len(m.urls) > 0 {
@@ -220,6 +284,28 @@ func (m *Manager) RemoveURL(url string) bool {
 		m.roundRobinPos = 0
 	}
 	return true
+}
+
+func durationMillis(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 0
+	}
+	millis := duration.Milliseconds()
+	if millis == 0 {
+		return 1
+	}
+	return millis
+}
+
+func progressPercent(bytesRead int64, contentLength int64) float64 {
+	if bytesRead <= 0 || contentLength <= 0 {
+		return 0
+	}
+	progress := float64(bytesRead) / float64(contentLength) * 100
+	if progress > 100 {
+		return 100
+	}
+	return progress
 }
 
 func (m *Manager) availableLocked() []string {

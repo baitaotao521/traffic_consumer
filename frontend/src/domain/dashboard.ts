@@ -7,6 +7,7 @@ import type {
   PlanSummary,
   RuntimeState,
   ThreadCounts,
+  ThreadMetricPayload,
   ThreadRow,
 } from '@/types'
 
@@ -18,6 +19,7 @@ export const emptyStatus: StatusPayload = {
   download_count: 0,
   thread_count: 0,
   thread_status: {},
+  thread_metrics: {},
   url_usage_stats: [],
 }
 
@@ -39,6 +41,7 @@ export function normalizeStatus(status?: StatusPayload): StatusPayload {
     ...emptyStatus,
     ...(status || {}),
     thread_status: status?.thread_status || {},
+    thread_metrics: status?.thread_metrics || {},
     url_usage_stats: status?.url_usage_stats || [],
   }
 }
@@ -91,10 +94,12 @@ export function currentConfigName(status: StatusPayload, selectedConfigName: str
 
 export function threadRows(status: StatusPayload): ThreadRow[] {
   const map = status.thread_status || {}
+  const metrics = status.thread_metrics || {}
   const total = Number(status.thread_count || Object.keys(map).length || 0)
   return Array.from({ length: total }, (_, index) => {
     const id = index + 1
-    const url = map[String(id)] || '等待分配'
+    const metric = metrics[String(id)]
+    const url = map[String(id)] || metric?.url || '等待分配'
     const failed = url.includes('已失效') || url.includes('无可用')
     const active = !failed && url !== '等待分配' && url !== '等待中...'
     return {
@@ -102,8 +107,34 @@ export function threadRows(status: StatusPayload): ThreadRow[] {
       url,
       state: failed ? 'error' : active ? 'active' : 'idle',
       label: failed ? (url.includes('无可用') ? '耗尽' : '失效') : active ? '运行中' : '待命',
+      responseTime: formatResponseTime(metric?.response_time_ms),
+      progress: metricProgress(metric),
+      progressLabel: formatThreadProgress(metric, active),
     }
   })
+}
+
+function formatResponseTime(value?: number): string {
+  if (!value || value <= 0) return '--'
+  if (value < 1000) return `${Math.round(value)} ms`
+  const seconds = value / 1000
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`
+}
+
+function metricProgress(metric?: ThreadMetricPayload): number {
+  const progress = Number(metric?.progress || 0)
+  if (!Number.isFinite(progress) || progress <= 0) return 0
+  if (progress >= 100) return 100
+  return progress
+}
+
+function formatThreadProgress(metric: ThreadMetricPayload | undefined, active: boolean): string {
+  const progress = metricProgress(metric)
+  const bytesRead = Number(metric?.bytes_read || 0)
+  const contentLength = Number(metric?.content_length || 0)
+  if (contentLength > 0 || progress >= 100) return `${Math.round(progress)}%`
+  if (active && bytesRead > 0) return '接收中'
+  return '--'
 }
 
 export function threadCounts(rows: ThreadRow[]): ThreadCounts {

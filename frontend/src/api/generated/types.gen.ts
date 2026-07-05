@@ -304,11 +304,22 @@ export type StatusPayload = {
     speed?: string;
     state: string;
     thread_count?: number;
+    thread_metrics: {
+        [key: string]: ThreadMetric;
+    };
     thread_status: {
         [key: string]: string;
     };
     total_bytes?: string;
     url_usage_stats: Array<UrlUsageStat> | null;
+};
+
+export type ThreadMetric = {
+    bytes_read?: number;
+    content_length?: number;
+    progress?: number;
+    response_time_ms?: number;
+    url?: string;
 };
 
 export type UrlUsageStat = {

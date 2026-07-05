@@ -2,6 +2,7 @@ package urlmanager
 
 import (
 	"testing"
+	"time"
 
 	"github.com/baitaotao521/traffic_consumer/internal/model"
 )
@@ -38,5 +39,30 @@ func TestRemoveURLUpdatesThreadStatus(t *testing.T) {
 	snapshot := manager.ThreadSnapshot(1)
 	if snapshot[1] != "a (已移除)" {
 		t.Fatalf("thread status not updated: %+v", snapshot)
+	}
+}
+
+func TestThreadMetricsTrackResponseAndProgress(t *testing.T) {
+	manager := New([]string{"a"}, "round_robin", 5, nil)
+	if got := manager.GetURLForThread(1); got != "a" {
+		t.Fatalf("unexpected selected URL: %s", got)
+	}
+
+	manager.RecordThreadResponse(1, 1500*time.Millisecond, 200)
+	manager.RecordThreadProgress(1, 50)
+
+	snapshot := manager.ThreadMetricSnapshot(2)
+	metric := snapshot[1]
+	if metric.URL != "a" || metric.ResponseTimeMS != 1500 || metric.BytesRead != 50 || metric.ContentLength != 200 || metric.Progress != 25 {
+		t.Fatalf("unexpected metric snapshot: %+v", metric)
+	}
+	if snapshot[2] != (model.ThreadMetric{}) {
+		t.Fatalf("missing threads should use empty metric snapshots: %+v", snapshot[2])
+	}
+
+	manager.RecordThreadProgress(1, 250)
+	metric = manager.ThreadMetricSnapshot(1)[1]
+	if metric.Progress != 100 {
+		t.Fatalf("progress should be capped at 100%%: %+v", metric)
 	}
 }

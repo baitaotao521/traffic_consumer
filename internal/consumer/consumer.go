@@ -314,7 +314,7 @@ func (c *Consumer) downloadLoop(ctx context.Context, threadID int) {
 func (c *Consumer) downloadWithRetries(ctx context.Context, client *http.Client, url string, threadID int) bool {
 	backoff := retryBackoff
 	for attempt := 1; attempt <= maxRetries && c.IsActive() && ctx.Err() == nil; attempt++ {
-		completed, err := c.streamDownload(ctx, client, url)
+		completed, err := c.streamDownload(ctx, client, url, threadID)
 		if err == nil {
 			return completed
 		}
@@ -344,7 +344,7 @@ func (c *Consumer) downloadWithRetries(ctx context.Context, client *http.Client,
 	return false
 }
 
-func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url string) (bool, error) {
+func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url string, threadID int) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false, err
@@ -360,11 +360,15 @@ func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url 
 		req.Header.Set("User-Agent", c.Config.UserAgent)
 	}
 
+	requestStartedAt := time.Now()
 	resp, err := client.Do(req)
+	responseTime := time.Since(requestStartedAt)
 	if err != nil {
+		c.URLMgr.RecordThreadResponse(threadID, responseTime, 0)
 		return false, err
 	}
 	defer resp.Body.Close()
+	c.URLMgr.RecordThreadResponse(threadID, responseTime, resp.ContentLength)
 	if resp.StatusCode >= 400 {
 		return false, fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
 	}
@@ -377,6 +381,7 @@ func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url 
 			if c.rateLimiter != nil {
 				c.rateLimiter.Acquire(n)
 			}
+			c.URLMgr.RecordThreadProgress(threadID, int64(n))
 			c.addBytes(int64(n))
 			if c.checkTrafficLimit() {
 				return false, nil
@@ -390,6 +395,7 @@ func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url 
 			continue
 		}
 		if errors.Is(readErr, io.EOF) {
+			c.URLMgr.CompleteThreadProgress(threadID)
 			return true, nil
 		}
 		return false, readErr

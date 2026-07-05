@@ -171,10 +171,26 @@ type StatusPayload struct {
 	ThreadCount int `json:"thread_count,omitempty"`
 	// ThreadStatus 保存每条线程当前分配的 URL 或异常状态。
 	ThreadStatus map[int]string `json:"thread_status"`
+	// ThreadMetrics 保存每条线程当前响应时间和响应体读取进度。
+	ThreadMetrics map[int]ThreadMetric `json:"thread_metrics"`
 	// URLUsageStats 保存 URL 使用占比图表的数据源。
 	URLUsageStats []URLUsageStat `json:"url_usage_stats"`
 	// Message 是操作接口返回给前端弹窗的状态文案。
 	Message string `json:"message,omitempty"`
+}
+
+// ThreadMetric 是线程状态表中响应耗时和响应体进度的结构化快照。
+type ThreadMetric struct {
+	// URL 是本次响应正在下载的链接，用于补足旧状态字符串缺失时的展示值。
+	URL string `json:"url,omitempty"`
+	// ResponseTimeMS 是从发起请求到收到响应头的耗时毫秒数。
+	ResponseTimeMS int64 `json:"response_time_ms,omitempty"`
+	// BytesRead 是当前响应体已经读取的字节数。
+	BytesRead int64 `json:"bytes_read,omitempty"`
+	// ContentLength 是响应头声明的响应体字节数，未知长度时为 0。
+	ContentLength int64 `json:"content_length,omitempty"`
+	// Progress 是当前响应体读取进度百分比，未知长度时保持 0，完成时为 100。
+	Progress float64 `json:"progress,omitempty"`
 }
 
 // URLUsageStat 是前端 URL 占比列表和图表的数据项。

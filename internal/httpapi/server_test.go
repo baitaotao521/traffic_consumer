@@ -42,6 +42,9 @@ func TestDashboardReturnsAggregateSnapshot(t *testing.T) {
 	if response.Dashboard.Status.State != model.StateStopped {
 		t.Fatalf("unexpected status: %+v", response.Dashboard.Status)
 	}
+	if response.Dashboard.Status.ThreadMetrics == nil {
+		t.Fatalf("dashboard status should include thread metrics: %+v", response.Dashboard.Status)
+	}
 	if response.Dashboard.Plans == nil || response.Dashboard.Scheduler.Plans == nil {
 		t.Fatalf("dashboard should normalize plan slices: %+v", response.Dashboard)
 	}
