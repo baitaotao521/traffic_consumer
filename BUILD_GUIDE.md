@@ -1,8 +1,6 @@
 # 自动化构建指南
 
-本项目当前主运行路径为 Go HTTP 服务 + Vue/Vite 前端。GitHub Actions 会执行 Go 测试、前端构建，并发布多架构 Docker 镜像。
-
-Python 端已废弃：`build_config.py`、`requirements.txt`、`main.py`、`web_ui.py`、`traffic_consumer.py` 与 `app/` 不再作为发布构建路径。不要使用 PyInstaller 流程制作新版本，发布产物以 Go 单文件可执行程序和 Docker 镜像为准。
+本项目当前主运行路径为 Go HTTP 服务 + Vue/Vite 前端。GitHub Actions 会执行 Go 测试、前端构建，并发布 Go 单文件可执行程序和多架构 Docker 镜像。
 
 ## 自动构建
 

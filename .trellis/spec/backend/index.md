@@ -6,16 +6,14 @@
 
 ## Overview
 
-Traffic Consumer's maintained backend is the Go HTTP service and CLI in `main.go`
-and `internal/`. The Vue dashboard is built from `frontend/` into `static/app/`
-and served by the Go HTTP API.
+Traffic Consumer's maintained backend is the Go HTTP service and CLI in
+`main.go` and `internal/`. The Vue dashboard is built from `frontend/` into
+`static/app/` and served by the Go HTTP API.
 
-The Python implementation (`main.py`, `web_ui.py`, `traffic_consumer.py`,
-`app/`, `requirements.txt`, and `build_config.py`) is deprecated. Keep it only
-as a legacy compatibility reference while preserving migrated file formats and
-user-visible behavior. New backend work belongs in Go, not Python. Do not add
-new features, release plumbing, or tests that treat the Python backend as the
-primary implementation.
+The product Python backend has been removed. New backend work belongs in Go,
+and release plumbing must stay on the Go executable and Docker image path.
+Historical Python behavior may still be mentioned in Go comments when it
+explains persisted config/stat compatibility that users already rely on.
 
 ---
 
@@ -23,7 +21,7 @@ primary implementation.
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Go package layout, frontend/static boundaries, and deprecated Python paths | Filled |
+| [Directory Structure](./directory-structure.md) | Go package layout, frontend/static boundaries, and removed Python product paths | Filled |
 | [Database Guidelines](./database-guidelines.md) | JSON-file persistence, config/stat schema compatibility, and storage tests | Filled |
 | [Error Handling](./error-handling.md) | Go error propagation, HTTP response shape, CLI exits, and cancellation | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Required checks, testing expectations, comments, and forbidden legacy work | Filled |
@@ -35,7 +33,7 @@ primary implementation.
 ## Pre-Development Checklist
 
 - Confirm the touched backend path is Go (`main.go` or `internal/**`) unless the
-  task is explicitly about deleting or documenting the deprecated Python path.
+  task explicitly concerns removed Python product-path documentation.
 - Read [Directory Structure](./directory-structure.md) before adding packages,
   handlers, runtime state, storage helpers, or CLI flags.
 - Read [Database Guidelines](./database-guidelines.md) before changing
@@ -58,8 +56,6 @@ primary implementation.
   payloads change.
 - Run `npm --prefix frontend run build` when Go API changes affect the dashboard
   contract or when frontend/static assets are touched.
-- Keep Python tests only as legacy compatibility checks. They must not become
-  the acceptance gate for new backend behavior.
 
 ---
 
@@ -71,13 +67,7 @@ Primary runtime:
 main.go -> internal/cli or internal/httpapi -> internal/runtime/consumer/storage/stats/urlmanager
 ```
 
-Deprecated runtime:
-
-```text
-main.py, web_ui.py, traffic_consumer.py, app/**, build_config.py
-```
-
 Legacy compatibility is still valuable when Go code intentionally preserves old
-JSON fields, status strings, or CLI output. It is not a reason to extend the
-Python backend. Seriously, adding new backend behavior to both stacks is how a
+JSON fields, status strings, or CLI output. It is not a reason to recreate the
+removed Python backend. Seriously, adding a second backend again is how a
 rewrite turns into a maintenance trap.

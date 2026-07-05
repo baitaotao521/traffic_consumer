@@ -21,8 +21,8 @@ All maintained persistence code lives in Go:
 - `internal/stats/stats.go` owns stats JSON history and aggregation.
 - `internal/model/model.go` owns the serialized schema.
 
-The deprecated Python storage code is not a source for new persistence work.
-Use it only to confirm a compatibility rule already mirrored in Go.
+The removed Python storage path is not a source for new persistence work.
+Historical compatibility rules must live in Go tests and comments.
 
 ---
 
@@ -147,5 +147,4 @@ aggregation, failed-URL removal, or CLI config commands.
   different business meaning.
 - Adding a config field only to CLI or only to Web payloads, creating split
   behavior.
-- Reintroducing Python-side persistence changes. The Python backend is
-  deprecated; Go owns schema evolution now.
+- Reintroducing product Python persistence. Go owns schema evolution now.

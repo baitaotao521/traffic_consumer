@@ -11,9 +11,9 @@ The maintained backend is the Go module `github.com/baitaotao521/traffic_consume
 runs CLI-only commands through `internal/cli`, and otherwise starts the Go HTTP
 server in `internal/httpapi`.
 
-Python files remain in the repository as deprecated legacy code. They explain
-some compatibility names and behavior, but they are not a target for new
-backend features.
+The product Python backend has been removed. Trellis and Codex Python scripts
+may still exist under their own workflow directories; they are development
+automation, not Traffic Consumer runtime code.
 
 ---
 
@@ -35,10 +35,6 @@ frontend/                       Vue/Vite dashboard source
 static/app/                     compiled dashboard bundle served by Go
 static/js, static/css           old static assets kept for compatibility with template replacement
 templates/index.html            Web page shell loaded by internal/httpapi
-main.py, web_ui.py, app/        deprecated Python backend
-traffic_consumer.py             deprecated Python compatibility entry point
-build_config.py                 deprecated PyInstaller build helper
-requirements.txt                deprecated Python dependency set
 ```
 
 ---
@@ -92,9 +88,9 @@ r.Route("/api", func(r chi.Router) {
 
 ---
 
-## Deprecated Python Boundary
+## Removed Python Product Boundary
 
-Do not place new backend logic in:
+Do not recreate these removed product runtime paths:
 
 - `main.py`
 - `web_ui.py`
@@ -103,19 +99,18 @@ Do not place new backend logic in:
 - `build_config.py`
 - `requirements.txt`
 
-Those files are deprecated. Read them only when confirming a legacy field or
-behavior that the Go implementation must keep compatible, such as old
-`request_headers` formats or the `stats.json` time strings preserved in
-`internal/model/model.go`.
+Historical behavior that Go still preserves must be documented next to the Go
+implementation, such as old `request_headers` formats or the `stats.json` time
+strings preserved in `internal/model/model.go`.
 
 When a compatibility behavior is preserved in Go, document it next to the Go
 implementation. Existing examples:
 
 ```go
-// MarshalJSON keeps the Python Web UI object format for saved configs.
+// MarshalJSON keeps the legacy Web UI object format for saved configs.
 func (h HeaderMap) MarshalJSON() ([]byte, error)
 
-// ReadJSON treats missing or corrupt JSON as empty, matching the Python path.
+// ReadJSON treats missing or corrupt JSON as empty, matching legacy tolerance.
 func ReadJSON(path string, target any) error
 ```
 

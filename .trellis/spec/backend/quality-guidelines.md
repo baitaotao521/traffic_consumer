@@ -20,9 +20,6 @@ are touched:
 npm --prefix frontend run build
 ```
 
-Python tests and Python dependencies remain only for legacy compatibility checks.
-They must not become the primary acceptance gate for new backend behavior.
-
 ---
 
 ## Required Patterns
@@ -35,7 +32,7 @@ They must not become the primary acceptance gate for new backend behavior.
 - Preserve public JSON field names unless a migration strategy is explicitly
   implemented.
 - Add business comments near non-obvious behavior, especially compatibility
-  rules carried from the old Python implementation.
+  rules carried from historical config/stat formats.
 - Keep API response messages user-facing and non-duplicated. The frontend shows
   these strings directly.
 
@@ -55,8 +52,8 @@ testCfg.AutoRemoveFailedURL = false
 
 ## Forbidden Patterns
 
-- Adding new backend features to `main.py`, `web_ui.py`, `traffic_consumer.py`,
-  `app/**`, or `build_config.py`.
+- Recreating `main.py`, `web_ui.py`, `traffic_consumer.py`, `app/**`,
+  `requirements.txt`, or `build_config.py` as product runtime paths.
 - Reintroducing Flask, Socket.IO, PyInstaller, or Python release paths as
   maintained behavior.
 - Writing directly to `~/.traffic_consumer` in tests.
@@ -93,7 +90,7 @@ Use raw JSON fixtures when the behavior exists to preserve legacy compatibility.
 Before considering a backend change done:
 
 - The changed path is in the maintained Go backend unless the task explicitly
-  concerns deprecated Python documentation/removal.
+  concerns removed Python product-path documentation.
 - `gofmt -w .` has been run for Go edits.
 - `go test ./...` passes.
 - Frontend build has been run when API/frontend/static contracts changed.
@@ -101,7 +98,7 @@ Before considering a backend change done:
   applicable.
 - User-facing API messages are not duplicated with slightly different wording.
 - Comments explain business behavior rather than restating code.
-- The Python backend was not extended with new maintained behavior.
+- The Python backend was not reintroduced.
 
 ---
 
@@ -110,5 +107,5 @@ Before considering a backend change done:
 - Updating only the Web path and forgetting CLI still uses the same model.
 - Updating only CLI flags and forgetting saved config JSON needs the same field.
 - Letting a compatibility comment drift after changing the actual behavior.
-- Using the old Python files as implementation targets because they look
-  familiar. They are deprecated; yes, that means hands off for new features.
+- Recreating the removed Python files because they look familiar. They were
+  removed for a reason; yes, that means hands off for new features.

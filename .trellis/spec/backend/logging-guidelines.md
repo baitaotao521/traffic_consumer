@@ -67,8 +67,8 @@ m.AddEvent(model.Event{
 - When `include_logs=false`, the handler must preserve the client's log cursor
   so pausing the log panel does not silently consume backlog.
 
-This replaces deprecated Python Socket.IO pushes. Do not add new Socket.IO
-behavior to the Python backend.
+This replaces the historical Socket.IO push model. Do not recreate a Python
+Socket.IO runtime path.
 
 ---
 
@@ -129,4 +129,4 @@ streams.
   while dropping unseen log entries.
 - Emitting a Web event without `Type`, `Message`, or `Config` when the event is
   tied to a config-specific operation.
-- Extending deprecated Python Socket.IO events instead of using Go HTTP polling.
+- Recreating Python Socket.IO events instead of using Go HTTP polling.
