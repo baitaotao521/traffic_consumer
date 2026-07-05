@@ -43,6 +43,23 @@ func TestAddLogWritesConsoleAndSupportsFilters(t *testing.T) {
 	}
 }
 
+func TestBuildURLUsageStatsDeduplicatesConfiguredURLs(t *testing.T) {
+	stats := buildURLUsageStats(
+		[]string{"https://example.com/a", "https://example.com/a", "https://example.com/b"},
+		map[string]int64{"https://example.com/a": 3, "https://example.com/b": 1},
+	)
+
+	if len(stats) != 2 {
+		t.Fatalf("duplicate configured URLs should be displayed once: %+v", stats)
+	}
+	if stats[0].URL != "https://example.com/a" || stats[0].Count != 3 || stats[0].Percentage != 75 {
+		t.Fatalf("unexpected first URL stats: %+v", stats[0])
+	}
+	if stats[1].URL != "https://example.com/b" || stats[1].Count != 1 || stats[1].Percentage != 25 {
+		t.Fatalf("unexpected second URL stats: %+v", stats[1])
+	}
+}
+
 func TestRunScheduledItemEmitsLifecycleLogs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -351,7 +368,7 @@ func TestStartConsumerRejectsConcurrentDuplicateConfig(t *testing.T) {
 	}
 }
 
-func TestPlanSummariesClearCompletedRunMetricsAndKeepLastRun(t *testing.T) {
+func TestPlanSummariesClearMetricsAfterImmediateRunAndKeepLastRun(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -385,30 +402,138 @@ func TestPlanSummariesClearCompletedRunMetricsAndKeepLastRun(t *testing.T) {
 		plans = manager.PlanSummaries()
 		plans := plansByName(manager.PlanSummaries())
 		plan = plans["demo"]
-		return plan.Name == "demo" && !plan.Running && plan.LastRun != nil
+		return plan.Name == "demo" && !plan.Running && plan.LastRun != nil && plan.DownloadCount == 0 && plan.TotalBytesRaw == 0
 	}, func() string {
 		runs, _ := manager.Stats.LoadRuns()
 		return fmt.Sprintf("plans=%+v runs=%+v", plans, runs)
 	})
 	if plan.DownloadCount != 0 || plan.TotalBytesRaw != 0 || plan.TotalBytes != "0.00 B" {
-		t.Fatalf("completed run metrics should be cleared from the stopped row: %+v", plan)
+		t.Fatalf("ended immediate task should clear config row metrics: %+v", plan)
 	}
 	if plan.LastRun == nil || plan.LastRun.DownloadCount != 1 || plan.LastRun.Bytes != 2 {
 		t.Fatalf("completed run result should be visible on plan row: %+v", plan.LastRun)
 	}
 }
 
-func TestScheduledRunKeepsRuntimeItemAfterCompletion(t *testing.T) {
+func TestPlanSummariesExcludePersistedHistoryFromActiveSession(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("ok"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("!!"))
+	}))
+	defer func() {
+		releaseDownload()
+		server.Close()
+	}()
+
+	paths := runtimeTestPaths(t)
+	if err := storage.SaveConfigEntry(paths.ConfigFile, "demo", model.Config{
+		URLs:        []string{server.URL},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	manager := New(paths)
+	t.Cleanup(func() {
+		releaseDownload()
+		manager.StopAll()
+	})
+	if err := manager.Stats.SaveRun(model.StatsRun{
+		ConfigName:    "demo",
+		TotalBytes:    1024,
+		DownloadCount: 2,
+		StartTime:     "2026-07-04 00:00:00",
+		EndTime:       "2026-07-04 00:00:01",
+		Result:        "成功",
+	}); err != nil {
+		t.Fatalf("save run: %v", err)
+	}
+	count := int64(2)
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		Count:       &count,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start demo: %v", err)
+	}
+
+	var plan model.PlanSummary
+	waitUntilWithMessage(t, 3*time.Second, func() bool {
+		plan = plansByName(manager.PlanSummaries())["demo"]
+		return plan.Running && plan.TotalBytesRaw == 2 && plan.DownloadCount == 0
+	}, func() string {
+		return fmt.Sprintf("plan=%+v", plan)
+	})
+}
+
+func TestPlanDetailClearsSummaryAfterEndedTaskAndKeepsHistory(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	if err := storage.SaveConfigEntry(paths.ConfigFile, "demo", model.Config{
+		URLs:        []string{"https://example.com/file"},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	manager := New(paths)
+
+	for _, run := range []model.StatsRun{
+		{ConfigName: "demo", TotalBytes: 1024, DownloadCount: 2, StartTime: "2026-07-04 00:00:00", EndTime: "2026-07-04 00:00:01", Result: "成功"},
+		{ConfigName: "demo", TotalBytes: 2048, DownloadCount: 3, StartTime: "2026-07-04 00:01:00", EndTime: "2026-07-04 00:01:01", Result: "成功"},
+	} {
+		if err := manager.Stats.SaveRun(run); err != nil {
+			t.Fatalf("save run: %v", err)
+		}
+	}
+
+	detail, err := manager.PlanDetail("demo")
+	if err != nil {
+		t.Fatalf("plan detail: %v", err)
+	}
+	if detail.Summary.TotalBytesRaw != 0 || detail.Summary.TotalBytes != "0.00 B" || detail.Summary.DownloadCount != 0 {
+		t.Fatalf("ended task detail summary should clear task-session totals: %+v", detail.Summary)
+	}
+	if detail.Summary.LastRun == nil || detail.Summary.LastRun.Bytes != 2048 || detail.Summary.LastRun.DownloadCount != 3 {
+		t.Fatalf("plan detail summary should still expose the latest historical run: %+v", detail.Summary.LastRun)
+	}
+	if len(detail.History) != 2 {
+		t.Fatalf("plan detail history should include persisted runs: %+v", detail.History)
+	}
+}
+
+func TestScheduledRunKeepsSessionTotalsUntilTaskStops(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer server.Close()
 
 	paths := runtimeTestPaths(t)
+	interval := int64(1)
+	if err := storage.SaveConfigEntry(paths.ConfigFile, "demo", model.Config{
+		URLs:        []string{server.URL},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
 	manager := New(paths)
 	t.Cleanup(func() { manager.StopAll() })
 
-	interval := int64(1)
 	count := int64(1)
 	if _, err := manager.StartConsumer(model.Config{
 		ConfigName:  "demo",
@@ -426,12 +551,29 @@ func TestScheduledRunKeepsRuntimeItemAfterCompletion(t *testing.T) {
 	}
 
 	manager.runScheduledItem(items[0], context.Background())
+	manager.runScheduledItem(items[0], context.Background())
 	plans := plansByName(manager.PlanSummaries())
 	if !plans["demo"].SchedulerRunning || plans["demo"].Running {
 		t.Fatalf("scheduled runtime item should remain waiting after run completion: %+v", plans["demo"])
 	}
-	if plans["demo"].TotalBytesRaw != 0 || plans["demo"].DownloadCount != 0 || plans["demo"].LastRun == nil {
-		t.Fatalf("scheduled run should clear row metrics and keep last result: %+v", plans["demo"])
+	if plans["demo"].TotalBytesRaw != 4 || plans["demo"].DownloadCount != 2 || plans["demo"].LastRun == nil {
+		t.Fatalf("waiting scheduled task should keep task-session totals and last result: %+v", plans["demo"])
+	}
+
+	detail, err := manager.PlanDetail("demo")
+	if err != nil {
+		t.Fatalf("plan detail: %v", err)
+	}
+	if detail.Summary.TotalBytesRaw != 4 || detail.Summary.DownloadCount != 2 {
+		t.Fatalf("plan detail summary should mirror waiting scheduled task totals: %+v", detail.Summary)
+	}
+
+	if !manager.StopRuntimeConfig("demo") {
+		t.Fatalf("expected scheduled demo to stop")
+	}
+	plans = plansByName(manager.PlanSummaries())
+	if plans["demo"].TotalBytesRaw != 0 || plans["demo"].DownloadCount != 0 {
+		t.Fatalf("stopped scheduled task should clear task-session metrics: %+v", plans["demo"])
 	}
 }
 

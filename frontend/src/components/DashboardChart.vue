@@ -102,6 +102,7 @@ const donutChartConfig = computed<ChartConfig>(() => {
         color: hasData.value
           ? resolveChartColor(props.colors[index % props.colors.length])
           : 'var(--muted)',
+        valueFormatter: (value) => formatDonutValue(value),
       },
     ]),
   )
@@ -123,7 +124,7 @@ const donutTooltip = computed(() => {
   })
 })
 const donutTooltipTriggers = computed(() => {
-  if (!donutTooltip.value) return {}
+  if (!hasData.value || !donutTooltip.value) return {}
   return {
     [VisDonutSelectors.segment]: donutTooltip.value,
   }
@@ -146,6 +147,15 @@ function formatLineYAxisTick(tick: number | Date) {
   const numericValue = Number(tick)
   if (props.valueFormatter) return props.valueFormatter(numericValue)
   return Number.isFinite(numericValue) ? numericValue.toLocaleString() : ''
+}
+
+function formatDonutValue(value: unknown) {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return '0 次 · 0.0%'
+  const total = donutValues.value.reduce((sum, item) => sum + Math.max(0, Number(item) || 0), 0)
+  const percentage = total > 0 ? (numericValue / total) * 100 : 0
+  const count = props.valueFormatter ? props.valueFormatter(numericValue) : `${Math.round(numericValue).toLocaleString()} 次`
+  return `${count} · ${percentage.toFixed(1)}%`
 }
 
 function donutValue(datum: DonutDatum) {

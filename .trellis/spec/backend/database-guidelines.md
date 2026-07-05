@@ -90,6 +90,9 @@ Keep these rules intact:
   fall back to default URLs.
 - Missing `urls` may fall back to `config.DefaultURLs` only when the caller
   explicitly opts into default URLs.
+- Repeated strings inside `urls` are preserved as user input. Normalization and
+  guards trim blanks and reject malformed non-HTTP(S) values, but must not
+  deduplicate configured URL entries.
 - `request_headers` accepts old arrays like
   `["Referer: https://example.com"]` and the current object format.
 - `user_agent` overrides a `User-Agent` value inside `request_headers` so the UI
@@ -145,6 +148,10 @@ aggregation, failed-URL removal, or CLI config commands.
   `storage` and `stats` helpers.
 - Treating `nil` URLs and an empty URL slice as the same value. They have
   different business meaning.
+- Reintroducing URL de-duplication in only one layer. Frontend projection,
+  `configguard.ValidateURLs`, runtime availability checks, and dashboard usage
+  stats must agree that repeated URL entries are accepted and preserved, while
+  repeated-address usage stats are displayed once per address.
 - Adding a config field only to CLI or only to Web payloads, creating split
   behavior.
 - Reintroducing product Python persistence. Go owns schema evolution now.

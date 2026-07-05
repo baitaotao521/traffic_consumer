@@ -28,6 +28,17 @@ func TestMarkInvalidEmitsEventAndRemovesFromSelection(t *testing.T) {
 	}
 }
 
+func TestMarkInvalidTreatsDuplicateURLAsFullyInvalid(t *testing.T) {
+	manager := New([]string{"https://example.com/a", "https://example.com/a"}, "round_robin", 5, nil)
+
+	if allInvalid := manager.MarkInvalid("https://example.com/a", "boom"); !allInvalid {
+		t.Fatalf("duplicate entries of the same failed URL should leave no available URL")
+	}
+	if got := manager.GetURLForThread(1); got != "" {
+		t.Fatalf("invalid duplicate URL should no longer be selected: %s", got)
+	}
+}
+
 func TestRemoveURLUpdatesThreadStatus(t *testing.T) {
 	manager := New([]string{"a", "b"}, "round_robin", 5, nil)
 	if got := manager.GetURLForThread(1); got != "a" {

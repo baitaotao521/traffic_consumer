@@ -75,7 +75,7 @@ function hasError(field: ConfigEditorField) {
   return Boolean(props.errors[field]?.length)
 }
 
-// URL 表格只改变编辑体验，保存/测试前仍由 projectConfigForm 统一拆分、去重和校验。
+// URL 表格只改变编辑体验，保存/测试前仍由 projectConfigForm 统一拆分空行并校验格式。
 const urlRows = computed({
   get: () => props.form.urls.split(/\r?\n/),
   set: (rows: string[]) => {

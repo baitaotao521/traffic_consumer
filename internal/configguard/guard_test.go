@@ -38,10 +38,16 @@ func TestValidateRejectsUnsafeNamesAndURLs(t *testing.T) {
 	if _, _, err := Validate("", cfg, ModeSave); err == nil {
 		t.Fatalf("expected non-http URL rejection")
 	}
+}
 
-	cfg = model.Config{ConfigName: "demo", URLs: []string{"https://example.com/a", "https://example.com/a"}, Threads: 1, URLStrategy: "random"}
-	if _, _, err := Validate("", cfg, ModeSave); err == nil {
-		t.Fatalf("expected duplicate URL rejection")
+func TestValidatePreservesDuplicateURLs(t *testing.T) {
+	cfg := model.Config{ConfigName: "demo", URLs: []string{"https://example.com/a", " https://example.com/a "}, Threads: 1, URLStrategy: "random"}
+	got, _, err := Validate("", cfg, ModeSave)
+	if err != nil {
+		t.Fatalf("duplicate URLs should be accepted: %v", err)
+	}
+	if len(got.URLs) != 2 || got.URLs[0] != "https://example.com/a" || got.URLs[1] != "https://example.com/a" {
+		t.Fatalf("duplicate URLs should be preserved after trimming: %+v", got.URLs)
 	}
 }
 

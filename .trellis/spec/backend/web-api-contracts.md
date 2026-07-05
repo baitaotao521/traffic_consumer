@@ -47,7 +47,10 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Command endpoints return `{ dashboard, message }`; config save also returns `item`.
 - Config save/start bodies use `model.Config` / generated `Config` through the
   frontend `ConfigPayload` alias. Optional numeric/string fields are omitted
-  when blank. `urls: []` is preserved as an explicit empty URL list.
+  when blank. `urls: []` is preserved as an explicit empty URL list. Repeated
+  strings inside `urls` are valid user input: guards trim and validate each
+  non-empty entry, but must not reject or collapse duplicates before storage or
+  runtime startup.
 - Huma schema-link metadata stays disabled for the Web API: responses and
   `frontend/src/api/openapi.json` must not include `$schema`, and
   `/api/schemas/*` must return `404`. `/api/openapi.json` remains the only
@@ -65,8 +68,25 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Web config validation belongs in a shared backend guard before runtime or
   storage mutation. The Vue editor may pre-validate for feedback, but direct API
   callers must still get the same 400/409 behavior from the Go API.
-- `DashboardSnapshot.plans` is the configuration list contract. `PlanSummary.total_bytes`, `total_bytes_raw`, and `download_count` describe the current active run only; stopped rows and waiting scheduled rows must return `0 B` / `0` for those fields. The completed result belongs in `PlanSummary.last_run` and `GET /api/plans/{name}.history`, not in row metrics.
-- `StatusPayload.total_bytes` and `download_count` aggregate the same current-run values shown in `DashboardSnapshot.plans`. They are live KPIs, not historical lifetime totals. Historical records stay in `stats.json` and are surfaced through `last_run` / plan detail history.
+- `DashboardSnapshot.plans` is the configuration list contract.
+  `PlanSummary.total_bytes`, `total_bytes_raw`, and `download_count` describe
+  the current task-session totals. That session starts when a runtime item is
+  started, includes completed scheduled runs while the scheduler waits for the
+  next trigger, includes the current active run snapshot, and clears to `0 B` /
+  `0` once the task or scheduler is stopped and the runtime item is removed.
+  Persisted `stats.json` history must not be folded back into these row totals.
+- `GET /api/plans/{name}.summary` reuses `PlanSummary` and follows the same
+  task-session metric window as the configuration list. The detail history
+  array remains the persisted `stats.json` history, so ended tasks show cleared
+  summary totals while still listing historical runs.
+- `StatusPayload.total_bytes` and `download_count` aggregate the same
+  task-session values shown in `DashboardSnapshot.plans`. They are live
+  runtime KPIs, not historical lifetime totals. Historical records stay in
+  `stats.json` and are surfaced through `last_run` / plan detail history.
+- `StatusPayload.url_usage_stats` is the dashboard URL distribution source.
+  The URL distribution chart must display both `count` and `percentage` for
+  each URL; chart hover text and any visible URL breakdown must not reduce this
+  payload to only one of the two fields.
 - Dashboard numeric form fields must use the component-library number input pattern (`NumberField` / Reka `NumberFieldRoot` + `NumberFieldInput`), not a generic `Input type="number"`. The library's number field owns the numeric model state; form adapters should receive `number | undefined` and must not trim or parse these fields as strings.
 - Dashboard config editor payloads must be projected through the shared
   frontend editor guard before save, start, or temporary test. Do not rebuild a
@@ -74,7 +94,7 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Dashboard URL table rows are an editor affordance only. Rows must write back
   to `ConfigForm.urls`, and save/start/temp-test must continue to let the shared
   frontend projection produce `ConfigPayload.urls` so URL parsing, duplicate
-  detection, and empty-list handling stay in one path.
+  preservation, and empty-list handling stay in one path.
 - Dashboard command confirmations that run async mutations must keep close
   timing in the composable. Do not wire mutation confirms through
   `AlertDialogAction` / `DialogClose`, because those primitives close before the
@@ -115,6 +135,9 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
   stops affected `A`/`B` runtime items only, and returns `item.name = "B"`.
 - Good: creating or renaming to an existing target shows a duplicate-name
   warning and does not open an overwrite confirmation dialog.
+- Good: saving or starting with `urls: ["https://example.com/a", "https://example.com/a"]` preserves both entries;
+  runtime URL failure checks use remaining availability, while dashboard URL
+  usage stats display each repeated address once with the shared usage count.
 - Base: dashboard polling reads one aggregate snapshot; activity polling reads logs and events through one cursor pair; config numeric fields stay as numeric model values from the number-field component until request encoding.
 - Base: pausing实时日志 must keep event polling active without advancing `after_log`; changing source/level filters should restart the log view from the buffered log set, not from a swallowed cursor.
 - Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, bypasses the config editor guard, advances the log cursor while `include_logs=false`, uses `Input type="number"` and then trims/parses the form value by hand, lets an async command confirmation auto-close before the mutation result is known, hides all production build warnings through a broad logger override, or raises the chunk warning threshold instead of splitting an oversized dashboard bundle.
@@ -125,7 +148,18 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - HTTP/storage/runtime tests must cover config validation, create conflict,
   forced create conflict, rename to unused target, forced rename conflict, and
   source/target runtime stop isolation for successful saves.
-- Runtime tests must assert that stopped immediate runs clear `PlanSummary.total_bytes_raw` and `download_count` while preserving `last_run`, and that scheduled runtime items remain registered after a trigger but also clear current-run row metrics.
+- Runtime tests must assert that stopped immediate runs clear
+  `PlanSummary.total_bytes_raw` and `download_count` while preserving
+  `last_run`, and that waiting scheduled runtime items keep task-session totals
+  across completed triggers until the task/scheduler is stopped.
+- Runtime tests must assert plan detail summary totals follow the same
+  task-session window as the list row, while `PlanDetailPayload.history` keeps
+  persisted historical runs after the task is stopped.
+- Config guard tests must assert repeated `urls` entries are accepted and
+  preserved after trimming. URL manager tests must assert a repeated address
+  marked invalid leaves no available URL when every configured entry is the same
+  string. Runtime status tests must assert URL usage stats deduplicate display
+  rows for repeated addresses.
 - Tests must assert old runtime routes are absent from OpenAPI and return `404`.
 - Tests must assert Huma schema metadata stays disabled: no `$schema` field in
   generated OpenAPI or runtime JSON responses, no `describedby` response link,
@@ -186,7 +220,8 @@ plan.DownloadCount = history.DownloadCount + currentCount
 #### Correct
 
 ```go
-plan.TotalBytesRaw = currentTotal
-plan.DownloadCount = currentCount
+sessionTotal, sessionCount := itemSessionTotals(item, currentTotal, currentCount, active)
+plan.TotalBytesRaw = sessionTotal
+plan.DownloadCount = sessionCount
 plan.LastRun = history.LastRun
 ```

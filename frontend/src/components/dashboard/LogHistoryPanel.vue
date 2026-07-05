@@ -166,7 +166,7 @@ watch(
               <TableRow>
                 <TableHead>计划</TableHead>
                 <TableHead>下次执行</TableHead>
-                <TableHead>累计流量</TableHead>
+                <TableHead>任务流量</TableHead>
                 <TableHead class="text-right">下载数</TableHead>
               </TableRow>
             </TableHeader>

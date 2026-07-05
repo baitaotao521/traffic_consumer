@@ -213,15 +213,15 @@ type PlanSummary struct {
 	SchedulerRunning bool `json:"scheduler_running"`
 	// NextRunTime 是调度器计算出的下一次触发时间。
 	NextRunTime string `json:"next_run_time,omitempty"`
-	// TotalBytes 是当前本次运行流量的展示值，停止后归零，历史结果由 LastRun 承载。
+	// TotalBytes 是当前任务会话累计流量的展示值，调度等待期间保留，结束任务后归零。
 	TotalBytes string `json:"total_bytes"`
-	// TotalBytesRaw 是当前本次运行流量的原始字节数，停止后归零。
+	// TotalBytesRaw 是当前任务会话累计流量的原始字节数，结束任务后归零。
 	TotalBytesRaw int64 `json:"total_bytes_raw"`
 	// Speed 是当前运行中配置的实时速度展示值，停止或仅等待调度时为 0 B/s。
 	Speed string `json:"speed"`
 	// SpeedBytes 是当前运行中配置的实时速度原始字节值，顶部 KPI 直接从它聚合。
 	SpeedBytes float64 `json:"speed_bytes"`
-	// DownloadCount 是当前本次运行成功完成的响应次数，停止后归零。
+	// DownloadCount 是当前任务会话内成功完成的响应次数，结束任务后归零。
 	DownloadCount int64 `json:"download_count"`
 	// Threads 是计划配置的线程数量。
 	Threads int `json:"threads"`

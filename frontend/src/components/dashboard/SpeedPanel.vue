@@ -3,10 +3,12 @@ import { computed } from 'vue'
 import { RefreshCwIcon } from '@lucide/vue'
 
 import DashboardChart from '@/components/DashboardChart.vue'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { URLUsageStat } from '@/types'
 
 const props = defineProps<{
   /** 当前速度保留后端格式化文案，避免综合指数替代真实单位。 */
@@ -21,6 +23,8 @@ const props = defineProps<{
   urlChartLabels: string[]
   /** URL 饼图数值使用下载次数，单独表达 URL 分布。 */
   urlChartValues: number[]
+  /** URL 分布明细包含后端计算的下载次数和占比。 */
+  urlStats: URLUsageStat[]
   /** 实时速率采样值，单位为 MB/s。 */
   values: number[]
 }>()
@@ -51,6 +55,12 @@ function formatPercentValue(value: unknown) {
   return `${clampIndex(numericValue).toFixed(1)}%`
 }
 
+function formatDownloadCount(value: unknown) {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return '0 次'
+  return `${Math.round(numericValue).toLocaleString()} 次`
+}
+
 const currentSpeedLabel = computed(() => props.currentSpeed || formatSpeedValue(props.values.at(-1)))
 
 const speedChartValues = computed(() => {
@@ -62,6 +72,18 @@ const speedChartValues = computed(() => {
 
 const threadActiveChartValues = computed(() => props.labels.map((_, index) => clampIndex(props.threadActiveValues[index] ?? 0)))
 const threadActiveLabel = computed(() => formatPercentValue(currentThreadActive.value))
+
+const urlDistributionRows = computed(() => {
+  return props.urlStats.map((item, index) => {
+    const url = item.url || `链接 ${index + 1}`
+    return {
+      key: `${url}-${index}`,
+      url,
+      countLabel: formatDownloadCount(item.count),
+      percentageLabel: formatPercentValue(item.percentage),
+    }
+  })
+})
 </script>
 
 <template>
@@ -135,11 +157,25 @@ const threadActiveLabel = computed(() => formatPercentValue(currentThreadActive.
               chart-id="aggregate-url-pie-chart"
               type="doughnut"
               label="URL"
-              sub-label="下载次数"
+              sub-label="次数 / 占比"
               :labels="urlChartLabels"
+              :value-formatter="formatDownloadCount"
               :values="urlChartValues"
               :height="240"
             />
+          </div>
+          <div v-if="urlDistributionRows.length" class="grid max-h-40 w-full gap-2 overflow-auto pr-1 text-xs">
+            <div
+              v-for="item in urlDistributionRows"
+              :key="item.key"
+              class="grid gap-1 rounded-md border bg-card px-2 py-1.5"
+            >
+              <span class="truncate text-muted-foreground">{{ item.url }}</span>
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-mono font-medium tabular-nums">{{ item.countLabel }}</span>
+                <Badge variant="secondary">{{ item.percentageLabel }}</Badge>
+              </div>
+            </div>
           </div>
         </section>
       </div>

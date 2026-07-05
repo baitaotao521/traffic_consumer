@@ -40,7 +40,7 @@ const open = defineModel<boolean>('open', { required: true })
           </Card>
           <Card size="sm">
             <CardContent>
-              <CardDescription>累计流量 / 下载数</CardDescription>
+              <CardDescription>任务累计流量 / 下载数</CardDescription>
               <div id="plan-detail-total" class="font-semibold">
                 {{ planDetail.summary.total_bytes }} / {{ planDetail.summary.download_count }}
               </div>

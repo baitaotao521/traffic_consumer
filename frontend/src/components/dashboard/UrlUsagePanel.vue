@@ -2,6 +2,7 @@
 import { PieChartIcon } from '@lucide/vue'
 
 import DashboardChart from '@/components/DashboardChart.vue'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
@@ -13,6 +14,12 @@ defineProps<{
   stats: URLUsageStat[]
   values: number[]
 }>()
+
+function formatDownloadCount(value: unknown) {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return '0 次'
+  return `${Math.round(numericValue).toLocaleString()} 次`
+}
 </script>
 
 <template>
@@ -27,6 +34,7 @@ defineProps<{
           type="doughnut"
           sub-label="下载分布"
           :labels="labels"
+          :value-formatter="formatDownloadCount"
           :values="values"
           :height="150"
         />
@@ -50,7 +58,10 @@ defineProps<{
                 {{ item.url }}
               </HoverCardContent>
             </HoverCard>
-            <span class="shrink-0 text-xs font-semibold">{{ item.percentage.toFixed(1) }}%</span>
+            <div class="flex shrink-0 items-center gap-2">
+              <span class="font-mono text-xs font-medium tabular-nums">{{ formatDownloadCount(item.count) }}</span>
+              <Badge variant="secondary">{{ item.percentage.toFixed(1) }}%</Badge>
+            </div>
           </div>
           <Progress :model-value="Math.max(0, Math.min(100, item.percentage))" />
         </div>

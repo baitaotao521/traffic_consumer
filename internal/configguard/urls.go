@@ -15,7 +15,6 @@ func ValidateURLs(cfg model.Config, mode Mode) ([]string, error) {
 	}
 
 	cleaned := make([]string, 0, len(rawURLs))
-	seen := map[string]bool{}
 	for _, item := range rawURLs {
 		text := strings.TrimSpace(item)
 		if text == "" {
@@ -28,10 +27,7 @@ func ValidateURLs(cfg model.Config, mode Mode) ([]string, error) {
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 			return nil, Error{"URL 必须是有效的 http 或 https 地址。"}
 		}
-		if seen[text] {
-			return nil, Error{"URL 列表不能包含重复地址。"}
-		}
-		seen[text] = true
+		// 重复 URL 保留为用户明确配置的多条下载目标，校验只剔除空白项并拒绝非法地址。
 		cleaned = append(cleaned, text)
 		if len(cleaned) > maxConfigURLs {
 			return nil, guardError("URL 数量不能超过 %d 条。", maxConfigURLs)

@@ -97,6 +97,7 @@ const hasScheduler = computed(() => {
             :thread-active-values="dashboard.threadActiveValues.value"
             :url-chart-labels="dashboard.urlChartLabels.value"
             :url-chart-values="dashboard.urlChartValues.value"
+            :url-stats="dashboard.urlStats.value"
             :values="dashboard.speedValues.value"
             @refresh="dashboard.runAction(dashboard.refreshDashboard)"
           />

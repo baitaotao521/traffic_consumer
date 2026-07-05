@@ -562,26 +562,19 @@ func (m *Manager) PlanSummaries() []model.PlanSummary {
 		}
 		history := historySummary[item.Name]
 		total, count, startedAt, active := item.Consumer.Snapshot()
-		// 列表里的流量和下载数只展示本次正在运行的数据；停止后的结果进入 LastRun 和历史详情。
-		currentTotal := int64(0)
-		currentCount := int64(0)
-		if active {
-			currentTotal = total
-			currentCount = count
-		}
-		totalRaw := currentTotal
-		downloadCount := currentCount
-		speedBytes := liveSpeedBytes(currentTotal, startedAt, active)
+		// 配置列表展示当前任务会话累计值；调度等待期间保留，结束任务移除 Item 后清空。
+		sessionTotal, sessionCount := itemSessionTotals(item, total, count, active)
+		speedBytes := liveSpeedBytes(total, startedAt, active)
 		planByName[item.Name] = model.PlanSummary{
 			Name:             item.Name,
 			Running:          active,
 			SchedulerRunning: item.Cron != nil,
 			NextRunTime:      item.nextRun(),
-			TotalBytes:       stats.FormatBytes(float64(totalRaw)),
-			TotalBytesRaw:    totalRaw,
+			TotalBytes:       stats.FormatBytes(float64(sessionTotal)),
+			TotalBytesRaw:    sessionTotal,
 			Speed:            formatSpeed(speedBytes),
 			SpeedBytes:       speedBytes,
-			DownloadCount:    downloadCount,
+			DownloadCount:    sessionCount,
 			Threads:          item.Config.Threads,
 			URLCount:         len(item.Consumer.URLMgr.URLs()),
 			CronExpr:         item.Config.CronExpr,
@@ -599,7 +592,7 @@ func (m *Manager) PlanSummaries() []model.PlanSummary {
 	return plans
 }
 
-// PlanDetail 返回计划详情弹窗数据。
+// PlanDetail 返回计划详情弹窗数据；汇总卡片沿用当前任务会话窗口，历史表单独保留持久化记录。
 func (m *Manager) PlanDetail(name string) (model.PlanDetailPayload, error) {
 	name = storage.NormalizeConfigName(name)
 	cfg, ok, err := storage.LoadConfigEntry(m.Paths.ConfigFile, name)
@@ -618,10 +611,7 @@ func (m *Manager) PlanDetail(name string) (model.PlanDetailPayload, error) {
 		}
 	}
 	if summary.Name == "" {
-		historySummary, _ := m.Stats.SummaryByConfig()
-		summary = historySummary[name]
 		summary.Name = name
-		// 详情头部跟列表保持一致，只展示当前运行态；历史结果留在 history 明细中。
 		summary.TotalBytes = stats.FormatBytes(0)
 		summary.TotalBytesRaw = 0
 		summary.Speed = formatSpeed(0)
@@ -631,8 +621,30 @@ func (m *Manager) PlanDetail(name string) (model.PlanDetailPayload, error) {
 		summary.CronExpr = cfg.CronExpr
 		summary.Interval = cfg.Interval
 	}
+	historySummary, _ := m.Stats.SummaryByConfig()
+	historyTotals := historySummary[name]
+	if summary.LastRun == nil {
+		summary.LastRun = historyTotals.LastRun
+	}
 	history, _ := m.Stats.HistoryForConfig(name, 50)
 	return model.PlanDetailPayload{Name: name, Config: cfg, Summary: summary, History: history}, nil
+}
+
+func itemSessionTotals(item *Item, currentTotal int64, currentCount int64, active bool) (int64, int64) {
+	total := int64(0)
+	count := int64(0)
+	if item.Cron != nil {
+		// 调度任务在等待下一次触发时仍属于同一个任务会话，已完成轮次计入列表和详情汇总。
+		for _, record := range item.Consumer.History() {
+			total += record.Bytes
+			count += record.DownloadCount
+		}
+	}
+	if active {
+		total += currentTotal
+		count += currentCount
+	}
+	return total, count
 }
 
 // SaveConfig 保存配置；若同名运行态存在，先停止旧计划。
@@ -933,7 +945,13 @@ func buildURLUsageStats(urls []string, usage map[string]int64) []model.URLUsageS
 	}
 	result := []model.URLUsageStat{}
 	if len(urls) > 0 {
+		seen := map[string]bool{}
 		for _, url := range urls {
+			if seen[url] {
+				continue
+			}
+			seen[url] = true
+			// 重复 URL 共用运行态使用计数，状态面板按地址展示一次，避免图表百分比重复累计。
 			count := usage[url]
 			result = append(result, model.URLUsageStat{URL: url, Count: count, Percentage: percent(count, total)})
 		}

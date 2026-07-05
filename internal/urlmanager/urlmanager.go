@@ -199,7 +199,7 @@ func (m *Manager) MarkInvalid(url string, errorDetail string) bool {
 
 	m.mu.Lock()
 	if m.invalid[url] {
-		allInvalid := len(m.invalid) >= len(m.urls)
+		allInvalid := len(m.availableLocked()) == 0
 		m.mu.Unlock()
 		return allInvalid
 	}
@@ -217,7 +217,7 @@ func (m *Manager) MarkInvalid(url string, errorDetail string) bool {
 			m.weights[idx] = 0
 		}
 	}
-	allInvalid := len(m.invalid) >= len(m.urls)
+	allInvalid := len(m.availableLocked()) == 0
 	if m.callback != nil {
 		event = model.Event{
 			Type:       "download_failure",

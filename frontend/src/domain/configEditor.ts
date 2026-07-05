@@ -128,7 +128,6 @@ function validateName(name: string, errors: ConfigValidationErrors) {
 
 function parseURLs(value: string, mode: ConfigValidationMode, errors: ConfigValidationErrors) {
   const urls: string[] = []
-  const seen = new Set<string>()
   for (const rawLine of value.split(/\r?\n/)) {
     const text = rawLine.trim()
     if (!text) continue
@@ -150,11 +149,7 @@ function parseURLs(value: string, mode: ConfigValidationMode, errors: ConfigVali
       addError(errors, 'urls', 'URL 必须是有效的 http 或 https 地址。')
       continue
     }
-    if (seen.has(text)) {
-      addError(errors, 'urls', 'URL 列表不能包含重复地址。')
-      continue
-    }
-    seen.add(text)
+    // 重复 URL 保留为用户输入的多条下载目标，前端只负责过滤空行和拦截非法地址。
     urls.push(text)
   }
   if (urls.length > limits.urls) {
