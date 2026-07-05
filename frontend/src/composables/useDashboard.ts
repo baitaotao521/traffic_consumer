@@ -125,7 +125,7 @@ export function useDashboard() {
   const configs = computed(() => configNames(dashboard.value))
   const status = computed(() => dashboard.value.status)
   const scheduler = computed(() => dashboard.value.scheduler)
-  const plans = computed(() => dashboard.value.plans || scheduler.value.plans || [])
+  const plans = computed(() => dashboard.value.plans || [])
   const activeConfigCount = computed(() => plans.value.filter((plan) => plan.running || plan.scheduler_running).length)
   const urlStats = computed(() => status.value.url_usage_stats || [])
   const currentConfig = computed(() => currentConfigName(status.value, selectedConfigName.value))

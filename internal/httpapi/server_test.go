@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,15 +48,53 @@ func TestDashboardReturnsAggregateSnapshot(t *testing.T) {
 	if response.Dashboard.Status.ThreadMetrics == nil {
 		t.Fatalf("dashboard status should include thread metrics: %+v", response.Dashboard.Status)
 	}
-	if response.Dashboard.Plans == nil || response.Dashboard.Scheduler.Plans == nil {
+	if response.Dashboard.Plans == nil {
 		t.Fatalf("dashboard should normalize plan slices: %+v", response.Dashboard)
 	}
 	plan, ok := findPlan(response.Dashboard.Plans, "demo")
 	if !ok || plan.Running || plan.Threads != 2 || plan.Speed != "0 B/s" {
 		t.Fatalf("saved stopped config should appear as a stopped plan row: %+v", response.Dashboard.Plans)
 	}
-	if len(response.Dashboard.Scheduler.Plans) != len(response.Dashboard.Plans) {
-		t.Fatalf("scheduler plans should mirror dashboard plans: %+v", response.Dashboard.Scheduler.Plans)
+	var raw struct {
+		Dashboard struct {
+			Scheduler map[string]any `json:"scheduler"`
+		} `json:"dashboard"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw dashboard: %v", err)
+	}
+	if _, ok := raw.Dashboard.Scheduler["plans"]; ok {
+		t.Fatalf("scheduler should not duplicate dashboard plans: %s", rec.Body.String())
+	}
+}
+
+func TestDashboardSupportsGzipCompression(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dashboard status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("dashboard should be gzip compressed when accepted, got %q", got)
+	}
+	reader, err := gzip.NewReader(rec.Body)
+	if err != nil {
+		t.Fatalf("open gzip body: %v", err)
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read gzip body: %v", err)
+	}
+	var response DashboardResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("decode compressed dashboard: %v", err)
+	}
+	if response.Dashboard.Status.State != model.StateStopped {
+		t.Fatalf("unexpected compressed dashboard status: %+v", response.Dashboard.Status)
 	}
 }
 
@@ -351,6 +391,9 @@ func TestOpenAPISchemaAndOldRoutes(t *testing.T) {
 	}
 	if _, ok := spec.Components.Schemas["DashboardResponse"].Properties["$schema"]; ok {
 		t.Fatalf("OpenAPI response schema should not expose Huma metadata field")
+	}
+	if _, ok := spec.Components.Schemas["SchedulerPayload"].Properties["plans"]; ok {
+		t.Fatalf("scheduler schema should not duplicate dashboard plans")
 	}
 	if _, ok := spec.Paths["/runtime/status"]; ok {
 		t.Fatalf("old runtime path should not be present in OpenAPI")

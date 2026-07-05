@@ -18,11 +18,28 @@ export const planDetailQueryKey = (name: string) => ['plan-detail', name] as con
 
 type DashboardCommandResponse = ConfigCommandResponse | RuntimeCommandResponse
 
+const activeDashboardRefetchInterval = 1000
+const idleDashboardRefetchInterval = 5000
+
+function dashboardHasActiveWork(snapshot?: DashboardSnapshot) {
+  if (!snapshot) return true
+  if (snapshot.status.running || snapshot.status.state === 'running' || snapshot.status.state === 'scheduled') {
+    return true
+  }
+  const plans = snapshot.plans || []
+  return plans.some((plan) => plan.running || plan.scheduler_running)
+}
+
+function dashboardRefetchInterval(response?: DashboardResponse) {
+  return dashboardHasActiveWork(response?.dashboard) ? activeDashboardRefetchInterval : idleDashboardRefetchInterval
+}
+
 export function useDashboardQuery() {
   return useQuery({
     queryKey: dashboardQueryKey,
     queryFn: apiClient.dashboard,
-    refetchInterval: 1000,
+    // Dashboard 是全量快照；空闲时靠命令响应和 activity 事件刷新缓存，保留低频兜底即可。
+    refetchInterval: (query) => dashboardRefetchInterval(query.state.data),
   })
 }
 

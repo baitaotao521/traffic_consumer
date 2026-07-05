@@ -37,7 +37,7 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 
 ### 3. Contracts
 
-- `GET /api/dashboard` returns `{ dashboard }`; the dashboard contains config summaries, runtime status, scheduler status, and plan summaries.
+- `GET /api/dashboard` returns `{ dashboard }`; the dashboard contains config summaries, runtime status, scheduler summary, and plan summaries.
 - `GET /api/activity` returns `{ logs, events, log_cursor, event_cursor }`; clients send the last consumed log/event cursors as `after_log` and `after_event`.
 - `GET /api/activity` log reads support three log-only controls:
   `include_logs`, `log_sources`, and `log_levels`.
@@ -68,7 +68,9 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Web config validation belongs in a shared backend guard before runtime or
   storage mutation. The Vue editor may pre-validate for feedback, but direct API
   callers must still get the same 400/409 behavior from the Go API.
-- `DashboardSnapshot.plans` is the configuration list contract.
+- `DashboardSnapshot.plans` is the only configuration list contract.
+  `SchedulerPayload` must not duplicate this list; it carries only scheduler
+  summary fields such as next run time and job details.
   `PlanSummary.total_bytes`, `total_bytes_raw`, and `download_count` describe
   the current task-session totals. That session starts when a runtime item is
   started, includes completed scheduled runs while the scheduler waits for the

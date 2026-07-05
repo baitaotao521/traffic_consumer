@@ -253,7 +253,6 @@ export type SchedulerPayload = {
     job_details: string;
     message?: string;
     next_run_time: string;
-    plans: Array<PlanSummary> | null;
 };
 
 export type StatusPayload = {

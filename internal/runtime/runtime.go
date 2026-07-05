@@ -504,9 +504,8 @@ func buildThreadSnapshots(items []*Item) (map[int]string, map[int]model.ThreadMe
 	return status, metrics
 }
 
-// SchedulerStatus 返回调度和计划列表。
+// SchedulerStatus 返回调度摘要，运行计划列表统一由 dashboard.plans 承载。
 func (m *Manager) SchedulerStatus() model.SchedulerPayload {
-	plans := m.PlanSummaries()
 	nextRun := ""
 	details := []string{}
 	for _, item := range m.items() {
@@ -523,7 +522,7 @@ func (m *Manager) SchedulerStatus() model.SchedulerPayload {
 			details = append(details, fmt.Sprintf("%s: Interval %d 分钟", item.Name, *item.Config.Interval))
 		}
 	}
-	return model.SchedulerPayload{NextRunTime: nextRun, JobDetails: strings.Join(details, " | "), Plans: plans}
+	return model.SchedulerPayload{NextRunTime: nextRun, JobDetails: strings.Join(details, " | ")}
 }
 
 // PlanSummaries 返回保存配置和非临时运行态合并后的配置行。

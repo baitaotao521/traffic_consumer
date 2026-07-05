@@ -49,7 +49,7 @@ type DashboardSnapshot struct {
 	Configs []ConfigSummary `json:"configs" doc:"配置摘要列表"`
 	// Status 保存 KPI、按钮状态和线程表使用的运行态快照。
 	Status model.StatusPayload `json:"status" doc:"运行态快照"`
-	// Scheduler 保存调度摘要和计划列表的调度态快照。
+	// Scheduler 保存下一次触发时间和调度说明；计划列表统一放在 Plans，避免 dashboard 响应重复传输。
 	Scheduler model.SchedulerPayload `json:"scheduler" doc:"调度态快照"`
 	// Plans 保存当前所有非临时运行计划。
 	Plans []model.PlanSummary `json:"plans" doc:"运行计划列表"`
@@ -199,6 +199,16 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.CleanPath)
+	// Web 控制台会长期轮询 JSON 快照并加载静态产物；开启压缩后，浏览器自动减少重复字段和脚本样式的传输体积。
+	r.Use(middleware.Compress(
+		5,
+		"application/json",
+		"text/html",
+		"text/css",
+		"text/javascript",
+		"application/javascript",
+		"image/svg+xml",
+	))
 
 	r.Get("/", s.index)
 	r.Get("/favicon.ico", func(w http.ResponseWriter, _ *http.Request) {
@@ -498,8 +508,6 @@ func (s *Server) dashboardSnapshot() (DashboardSnapshot, error) {
 	}
 	plans := s.Manager.PlanSummaries()
 	scheduler := s.Manager.SchedulerStatus()
-	// Dashboard 聚合响应是前端唯一的主界面读模型，计划列表保持与调度快照同步。
-	scheduler.Plans = plans
 	return DashboardSnapshot{
 		Configs:   configs,
 		Status:    s.Manager.Status(),

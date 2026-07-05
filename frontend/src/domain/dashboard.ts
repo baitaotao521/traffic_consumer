@@ -26,7 +26,6 @@ export const emptyStatus: StatusPayload = {
 export const emptyScheduler: SchedulerPayload = {
   next_run_time: '',
   job_details: '',
-  plans: [],
 }
 
 export const emptyDashboard: DashboardSnapshot = {
@@ -46,21 +45,20 @@ export function normalizeStatus(status?: StatusPayload): StatusPayload {
   }
 }
 
-export function normalizeScheduler(scheduler?: SchedulerPayload, plans: PlanSummary[] = []): SchedulerPayload {
+export function normalizeScheduler(scheduler?: SchedulerPayload): SchedulerPayload {
   return {
     ...emptyScheduler,
     ...(scheduler || {}),
-    plans: scheduler?.plans || plans,
   }
 }
 
 export function normalizeDashboard(response?: DashboardSnapshot): DashboardSnapshot {
   if (!response) return emptyDashboard
-  const plans = response.plans || response.scheduler?.plans || []
+  const plans = response.plans || []
   return {
     configs: response.configs || [],
     plans,
-    scheduler: normalizeScheduler(response.scheduler, plans),
+    scheduler: normalizeScheduler(response.scheduler),
     status: normalizeStatus(response.status),
   }
 }

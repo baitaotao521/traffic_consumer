@@ -247,8 +247,6 @@ type SchedulerPayload struct {
 	NextRunTime string `json:"next_run_time"`
 	// JobDetails 是调度 tab 顶部展示的紧凑计划说明。
 	JobDetails string `json:"job_details"`
-	// Plans 是运行计划列表的数据源。
-	Plans []PlanSummary `json:"plans"`
 	// Message 是停止或启动调度后的可选提示。
 	Message string `json:"message,omitempty"`
 }
