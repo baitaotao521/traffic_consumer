@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -477,13 +478,20 @@ func TestSaveAndDeleteConfigOnlyStopSameNamedRuntime(t *testing.T) {
 	}
 }
 
-func TestSaveConfigAsStopsSourceAndTargetOnly(t *testing.T) {
+func TestSaveConfigAsRejectsDuplicateTargetWithoutStoppingRuntime(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	manager := New(paths)
 	t.Cleanup(func() { manager.StopAll() })
 
 	interval := int64(1)
 	for _, name := range []string{"one", "two", "three"} {
+		if err := storage.SaveConfigEntry(paths.ConfigFile, name, model.Config{
+			URLs:        []string{},
+			Threads:     1,
+			URLStrategy: "round_robin",
+		}); err != nil {
+			t.Fatalf("save %s: %v", name, err)
+		}
 		if _, err := manager.StartConsumer(model.Config{
 			ConfigName:  name,
 			URLs:        []string{},
@@ -495,7 +503,7 @@ func TestSaveConfigAsStopsSourceAndTargetOnly(t *testing.T) {
 		}
 	}
 
-	savedName, err := manager.SaveConfigAs(SaveConfigOptions{
+	if _, err := manager.SaveConfigAs(SaveConfigOptions{
 		SourceName: "one",
 		TargetName: "two",
 		Config: model.Config{
@@ -504,18 +512,149 @@ func TestSaveConfigAsStopsSourceAndTargetOnly(t *testing.T) {
 			Threads:     2,
 			URLStrategy: "random",
 		},
-		Force: true,
-	})
-	if err != nil {
-		t.Fatalf("force rename save: %v", err)
-	}
-	if savedName != "two" {
-		t.Fatalf("unexpected saved name: %s", savedName)
+	}); !errors.Is(err, storage.ErrConfigConflict) {
+		t.Fatalf("duplicate rename should conflict, got %v", err)
 	}
 
 	plans := plansByName(manager.PlanSummaries())
-	if plans["one"].SchedulerRunning || plans["two"].SchedulerRunning || !plans["three"].SchedulerRunning {
-		t.Fatalf("rename overwrite should stop source/target only: %+v", plans)
+	if !plans["one"].SchedulerRunning || !plans["two"].SchedulerRunning || !plans["three"].SchedulerRunning {
+		t.Fatalf("duplicate rename should not stop existing plans: %+v", plans)
+	}
+}
+
+func TestSaveConfigAsSameNameStopsRuntimeAndReturns(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(1)
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start scheduled demo: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		savedName, err := manager.SaveConfigAs(SaveConfigOptions{
+			SourceName: "demo",
+			TargetName: "demo",
+			Config: model.Config{
+				ConfigName:  "demo",
+				URLs:        []string{},
+				Threads:     2,
+				URLStrategy: "random",
+			},
+		})
+		if err != nil {
+			done <- err
+			return
+		}
+		if savedName != "demo" {
+			done <- fmt.Errorf("unexpected saved name: %s", savedName)
+			return
+		}
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("same-name save: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("same-name save should not hang")
+	}
+
+	plans := plansByName(manager.PlanSummaries())
+	if plans["demo"].SchedulerRunning {
+		t.Fatalf("same-name save should stop the previous scheduled runtime: %+v", plans["demo"])
+	}
+	cfg, ok, err := storage.LoadConfigEntry(paths.ConfigFile, "demo")
+	if err != nil || !ok || cfg.Threads != 2 || cfg.URLStrategy != "random" {
+		t.Fatalf("same-name save should update config ok=%v err=%v cfg=%+v", ok, err, cfg)
+	}
+}
+
+func TestSaveConfigAsSameNameStopsActiveDownloadAndReturns(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var markStarted sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		markStarted.Do(func() { close(started) })
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start active demo: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("active download did not start")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		savedName, err := manager.SaveConfigAs(SaveConfigOptions{
+			SourceName: "demo",
+			TargetName: "demo",
+			Config: model.Config{
+				ConfigName:  "demo",
+				URLs:        []string{server.URL},
+				Threads:     2,
+				URLStrategy: "random",
+			},
+		})
+		if err != nil {
+			done <- err
+			return
+		}
+		if savedName != "demo" {
+			done <- fmt.Errorf("unexpected saved name: %s", savedName)
+			return
+		}
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("same-name active save: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("same-name active save should not hang")
+	}
+
+	plans := plansByName(manager.PlanSummaries())
+	if plans["demo"].Running {
+		t.Fatalf("same-name save should stop the previous active runtime: %+v", plans["demo"])
+	}
+	cfg, ok, err := storage.LoadConfigEntry(paths.ConfigFile, "demo")
+	if err != nil || !ok || cfg.Threads != 2 || cfg.URLStrategy != "random" {
+		t.Fatalf("same-name active save should update config ok=%v err=%v cfg=%+v", ok, err, cfg)
 	}
 }
 

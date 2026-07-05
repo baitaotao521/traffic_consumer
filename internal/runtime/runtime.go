@@ -67,7 +67,7 @@ type ResumeTarget struct {
 	AutoStart bool
 }
 
-// SaveConfigOptions 描述一次 Web 配置保存、重命名或覆盖操作。
+// SaveConfigOptions 描述一次 Web 配置保存或重命名操作。
 type SaveConfigOptions struct {
 	// SourceName 是编辑开始时的配置名，重命名时会在写入目标后删除。
 	SourceName string
@@ -75,9 +75,7 @@ type SaveConfigOptions struct {
 	TargetName string
 	// Config 是已经通过 Web 层业务校验的配置内容。
 	Config model.Config
-	// Force 允许覆盖不同名的已有目标配置。
-	Force bool
-	// RequireNew 表示本次操作来自“新建配置”，目标已存在时必须显式确认覆盖。
+	// RequireNew 表示本次操作来自“新建配置”，目标已存在时直接拒绝保存。
 	RequireNew bool
 }
 
@@ -624,7 +622,7 @@ func (m *Manager) SaveConfig(name string, cfg model.Config) error {
 	return err
 }
 
-// SaveConfigAs 保存、重命名或覆盖配置，并在写入前停止所有受影响的同名运行态。
+// SaveConfigAs 保存或重命名配置，并在写入前停止所有受影响的同名运行态。
 func (m *Manager) SaveConfigAs(options SaveConfigOptions) (string, error) {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
@@ -636,7 +634,7 @@ func (m *Manager) SaveConfigAs(options SaveConfigOptions) (string, error) {
 		return "", err
 	}
 	_, targetExists := configs[targetName]
-	if targetExists && (options.RequireNew || sourceName != targetName) && !options.Force {
+	if targetExists && (options.RequireNew || sourceName != targetName) {
 		return "", storage.ConfigConflictError{Name: targetName}
 	}
 
@@ -653,7 +651,6 @@ func (m *Manager) SaveConfigAs(options SaveConfigOptions) (string, error) {
 		SourceName: sourceName,
 		TargetName: targetName,
 		Config:     cfg,
-		Force:      options.Force,
 		RequireNew: options.RequireNew,
 	}); err != nil {
 		return "", err

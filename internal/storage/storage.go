@@ -32,7 +32,7 @@ func (e ConfigConflictError) Is(target error) bool {
 	return target == ErrConfigConflict
 }
 
-// SaveConfigEntryResult 描述一次配置保存是否覆盖或重命名了已有条目。
+// SaveConfigEntryResult 描述一次配置保存是否命中了已有条目或发生重命名。
 type SaveConfigEntryResult struct {
 	// SourceExisted 表示路径中的原配置名称在保存前已经存在。
 	SourceExisted bool
@@ -40,8 +40,6 @@ type SaveConfigEntryResult struct {
 	TargetExisted bool
 	// Renamed 表示本次保存把源配置改名为目标配置。
 	Renamed bool
-	// Overwritten 表示本次保存覆盖了需要用户确认的已有目标配置。
-	Overwritten bool
 }
 
 // SaveConfigEntryOptions 描述一次 Web 保存需要在同一把 config.json 锁内判断的命名语义。
@@ -52,9 +50,7 @@ type SaveConfigEntryOptions struct {
 	TargetName string
 	// Config 是要写入目标名称下的配置体。
 	Config model.Config
-	// Force 表示用户已确认覆盖已有目标配置。
-	Force bool
-	// RequireNew 表示新建入口保存，目标已存在时必须显式确认覆盖。
+	// RequireNew 表示新建入口保存，目标已存在时必须拒绝。
 	RequireNew bool
 }
 
@@ -169,7 +165,7 @@ func SaveConfigEntry(path, name string, cfg model.Config) error {
 	})
 }
 
-// SaveConfigEntryAs 在同一个 config.json 锁内完成创建、重命名和确认覆盖。
+// SaveConfigEntryAs 在同一个 config.json 锁内完成创建和重命名的重名检查。
 func SaveConfigEntryAs(path string, options SaveConfigEntryOptions) (SaveConfigEntryResult, error) {
 	configs := map[string]model.Config{}
 	sourceName := NormalizeConfigName(options.SourceName)
@@ -179,8 +175,7 @@ func SaveConfigEntryAs(path string, options SaveConfigEntryOptions) (SaveConfigE
 		_, result.SourceExisted = configs[sourceName]
 		_, result.TargetExisted = configs[targetName]
 		result.Renamed = sourceName != targetName
-		result.Overwritten = result.TargetExisted && (result.Renamed || options.RequireNew)
-		if result.Overwritten && !options.Force {
+		if result.TargetExisted && (result.Renamed || options.RequireNew) {
 			return false, ConfigConflictError{Name: targetName}
 		}
 

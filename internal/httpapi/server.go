@@ -133,9 +133,9 @@ type getConfigOutput struct {
 type saveConfigInput struct {
 	// Name 是路径中的配置名称。
 	Name string `path:"name" doc:"配置名称"`
-	// Force 表示用户已经确认覆盖已有目标配置。
-	Force bool `query:"force" doc:"确认覆盖已有目标配置"`
-	// Mode 区分新建和编辑，create 模式会在目标已存在时要求 force。
+	// Force 是旧前端覆盖确认遗留的兼容参数；重名目标仍会被拒绝。
+	Force bool `query:"force" doc:"兼容旧覆盖确认参数"`
+	// Mode 区分新建和编辑，create 模式遇到已有目标会直接返回冲突。
 	Mode string `query:"mode" doc:"保存模式：create 或 edit"`
 	// Body 是要保存的配置内容。
 	Body model.Config
@@ -276,7 +276,6 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 			SourceName: sourceName,
 			TargetName: targetName,
 			Config:     cfg,
-			Force:      input.Force,
 			RequireNew: strings.EqualFold(strings.TrimSpace(input.Mode), "create"),
 		})
 		if err != nil {

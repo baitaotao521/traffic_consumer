@@ -37,9 +37,11 @@ import {
 } from '@/domain/dashboard'
 import {
   activeRuntimeNames,
+  configNameExists,
   firstConfigError,
   projectConfigForm,
   projectConfigPayload,
+  sameConfigName,
   scheduledPlans,
   snapshotConfigForm,
 } from '@/domain/configEditor'
@@ -54,6 +56,13 @@ type AlertOptions = {
   description?: string
   detail?: string
   variant?: AlertVariant
+}
+
+type EditorSaveRequest = {
+  sourceName: string
+  targetName: string
+  mode: ConfigEditorMode
+  payload: ConfigPayload
 }
 
 export function useDashboard() {
@@ -281,17 +290,14 @@ export function useDashboard() {
     return activeRuntimeNames(plans.value, status.value, uniqueNames([sourceName, targetName]))
   }
 
-  function saveWouldOverwrite(targetName: string) {
-    const exists = configs.value.includes(targetName)
+  function saveNameConflict(targetName: string) {
+    const exists = configNameExists(configs.value, targetName)
     if (editorMode.value === 'create') return exists
-    return targetName !== editorOriginalName.value && exists
+    return !sameConfigName(targetName, editorOriginalName.value) && exists
   }
 
-  function saveConfirmationDescription(targetName: string, overwrite: boolean, stoppingNames: string[]) {
-    return [
-      overwrite ? `覆盖配置 "${targetName}"。` : undefined,
-      stoppingNames.length ? `保存前停止：${stoppingNames.join('、')}。` : undefined,
-    ].filter(Boolean).join('\n')
+  function saveConfirmationDescription(stoppingNames: string[]) {
+    return stoppingNames.length ? `保存前停止：${stoppingNames.join('、')}。` : ''
   }
 
   function openConfirmation(options: {
@@ -324,11 +330,12 @@ export function useDashboard() {
     try {
       await action()
       confirmDialogOpen.value = false
-    } catch (error) {
-      pushError(error)
-    } finally {
       pendingConfirmAction = null
       confirmDialogPendingKey.value = null
+    } catch (error) {
+      // 确认后的保存/删除可能因为后端状态变化失败；保留动作让用户可以重试或取消，
+      // 否则弹窗还开着但按钮已经没有可执行动作，会表现得像卡死。
+      pushError(error)
     }
   }
 
@@ -483,19 +490,25 @@ export function useDashboard() {
     editorOpen.value = true
   }
 
-  async function submitEditorSave(payload: ConfigPayload, targetName: string, force: boolean) {
-    const sourceName = editorMode.value === 'edit' && editorOriginalName.value ? editorOriginalName.value : targetName
+  function buildEditorSaveRequest(payload: ConfigPayload, targetName: string): EditorSaveRequest {
+    const mode = editorMode.value
+    const sourceName = mode === 'edit' && editorOriginalName.value ? editorOriginalName.value : targetName
+    return { sourceName, targetName, mode, payload }
+  }
+
+  async function submitEditorSave(request: EditorSaveRequest) {
     const response = await configMutations.saveConfig.mutateAsync({
-      name: sourceName,
-      config: payload,
+      name: request.sourceName,
+      config: request.payload,
       options: {
-        mode: editorMode.value,
-        force,
+        mode: request.mode,
       },
     })
-    const savedName = response.item?.name || targetName
+    const savedName = response.item?.name || request.targetName
     selectedConfigName.value = savedName
-    selectedConfigDetail.value = response.item ? configWithName(response.item.config, savedName) : configWithName(payload, savedName)
+    selectedConfigDetail.value = response.item
+      ? configWithName(response.item.config, savedName)
+      : configWithName(request.payload, savedName)
     applyConfigToForm(form, savedName, selectedConfigDetail.value)
     setEditorContext('edit', savedName)
     pushCommandMessage(response)
@@ -506,20 +519,25 @@ export function useDashboard() {
     const projection = validateEditorForm('save')
     if (!projection.ok) return
 
-    const overwrite = saveWouldOverwrite(projection.targetName)
+    if (saveNameConflict(projection.targetName)) {
+      pushAlert({ title: `配置 "${projection.targetName}" 已存在。`, variant: 'warning' })
+      return
+    }
+
     const stoppingNames = affectedRuntimeNames(projection.targetName)
-    if (overwrite || stoppingNames.length) {
+    const request = buildEditorSaveRequest(projection.payload, projection.targetName)
+    if (stoppingNames.length) {
       openConfirmation({
         title: '确认保存配置',
-        description: saveConfirmationDescription(projection.targetName, overwrite, stoppingNames),
+        description: saveConfirmationDescription(stoppingNames),
         actionLabel: '保存',
         pendingKey: 'saveConfig',
-        action: () => submitEditorSave(projection.payload, projection.targetName, overwrite),
+        action: () => submitEditorSave(request),
       })
       return
     }
 
-    await submitEditorSave(projection.payload, projection.targetName, false)
+    await submitEditorSave(request)
   }
 
   async function deleteSelectedConfig(target: string) {

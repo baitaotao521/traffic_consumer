@@ -149,17 +149,6 @@ const hasScheduler = computed(() => {
         close-button-position="top-right"
       />
 
-      <ConfirmActionDialog
-        v-model:open="dashboard.confirmDialogOpen.value"
-        :confirm-label="dashboard.confirmDialogActionLabel.value"
-        :description="dashboard.confirmDialogDescription.value"
-        :pending="dashboard.isConfirmingAction.value"
-        :title="dashboard.confirmDialogTitle.value"
-        :variant="dashboard.confirmDialogVariant.value"
-        @cancel="dashboard.cancelPendingAction"
-        @confirm="dashboard.confirmPendingAction"
-      />
-
       <ConfigSheet
         v-model:open="dashboard.editorOpen.value"
         :cron-preview="dashboard.cronPreview.value"
@@ -180,6 +169,17 @@ const hasScheduler = computed(() => {
         v-model:open="dashboard.planDialogOpen.value"
         :format-date-time="dashboard.formatDateTime"
         :plan-detail="dashboard.selectedPlanDetail.value"
+      />
+
+      <ConfirmActionDialog
+        v-model:open="dashboard.confirmDialogOpen.value"
+        :confirm-label="dashboard.confirmDialogActionLabel.value"
+        :description="dashboard.confirmDialogDescription.value"
+        :pending="dashboard.isConfirmingAction.value"
+        :title="dashboard.confirmDialogTitle.value"
+        :variant="dashboard.confirmDialogVariant.value"
+        @cancel="dashboard.cancelPendingAction"
+        @confirm="dashboard.confirmPendingAction"
       />
     </TooltipProvider>
   </main>

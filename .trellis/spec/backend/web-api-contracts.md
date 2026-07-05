@@ -48,13 +48,14 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Config save/start bodies use `model.Config` / generated `ConfigWritable`. Optional numeric/string fields are omitted when blank. `urls: []` is preserved as an explicit empty URL list.
 - `PUT /api/configurations/{name}` treats the path name as the source/original
   config and the body `name` / `config_name` as the target. `mode=create`
-  requires `force=true` before an existing target is overwritten. `mode=edit`
-  allows saving the same name, but renaming to an existing different target also
-  requires `force=true`.
-- Save/rename/overwrite must stop only affected runtime items before mutating
-  config data: source name, target name, and the overwritten target when they
-  are active or scheduled. The final response item name is always the saved
-  target name.
+  rejects an existing target directly. `mode=edit` allows saving the same name,
+  but renaming to an existing different target also returns `409 Conflict`.
+  The legacy `force` query parameter may be accepted for compatibility, but it
+  must not override duplicate-name protection.
+- Save/rename must stop only affected runtime items before mutating config
+  data: source name and target name when they are active or scheduled. Rejected
+  duplicate-name creates/renames must return before stopping runtime items. The
+  final response item name is always the saved target name.
 - Web config validation belongs in a shared backend guard before runtime or
   storage mutation. The Vue editor may pre-validate for feedback, but direct API
   callers must still get the same 400/409 behavior from the Go API.
@@ -64,6 +65,18 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Dashboard config editor payloads must be projected through the shared
   frontend editor guard before save, start, or temporary test. Do not rebuild a
   separate `ConfigWritable` serializer inside a component or composable.
+- Dashboard URL table rows are an editor affordance only. Rows must write back
+  to `ConfigForm.urls`, and save/start/temp-test must continue to let the shared
+  frontend projection produce `ConfigWritable.urls` so URL parsing, duplicate
+  detection, and empty-list handling stay in one path.
+- Dashboard command confirmations that run async mutations must keep close
+  timing in the composable. Do not wire mutation confirms through
+  `AlertDialogAction` / `DialogClose`, because those primitives close before the
+  save/stop/delete request resolves and can leave pending/retry state out of
+  sync. Keep the confirm action available until success or explicit cancel.
+- Global command confirmations must render after primary dashboard dialogs in
+  `App.vue`. Dialog and alert-dialog overlays share the same component-library
+  z-index, so source order is the project-owned stacking contract.
 - Cron preview request is `{ "expression": "*/5 * * * *" }`, not the old `{ "cron_expr": ... }`.
 - Frontend server state belongs in Vue Query. Components must not handwrite API URLs or parse Huma Problem Details directly.
 
@@ -73,7 +86,7 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 | --- | --- |
 | Invalid or empty cron expression | `400 Bad Request` Problem Details |
 | Invalid Web config name, URL, header, schedule, strategy, or numeric bound | `400 Bad Request` Problem Details |
-| Create or rename would overwrite an existing config without `force=true` | `409 Conflict` Problem Details |
+| Create or rename targets an existing different config, even with `force=true` | `409 Conflict` Problem Details |
 | Starting runtime while another run blocks it | `409 Conflict` Problem Details |
 | Stopping inactive runtime or scheduler | `409 Conflict` Problem Details |
 | Missing config or plan detail | `404 Not Found` Problem Details |
@@ -83,21 +96,26 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 ### 5. Good/Base/Bad Cases
 
 - Good: a save command writes the config, returns the saved `item`, and returns a fresh dashboard snapshot used to update Vue Query cache.
-- Good: editing config `A` with body target `B` renames the stored entry, stops
-  affected `A`/`B` runtime items only, and returns `item.name = "B"`.
+- Good: editing config `A` with unused body target `B` renames the stored entry,
+  stops affected `A`/`B` runtime items only, and returns `item.name = "B"`.
+- Good: creating or renaming to an existing target shows a duplicate-name
+  warning and does not open an overwrite confirmation dialog.
 - Base: dashboard polling reads one aggregate snapshot; activity polling reads logs and events through one cursor pair; config numeric fields stay as numeric model values from the number-field component until request encoding.
 - Base: pausing实时日志 must keep event polling active without advancing `after_log`; changing source/level filters should restart the log view from the buffered log set, not from a swallowed cursor.
-- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, bypasses the config editor guard, advances the log cursor while `include_logs=false`, or uses `Input type="number"` and then trims/parses the form value by hand.
+- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, bypasses the config editor guard, advances the log cursor while `include_logs=false`, uses `Input type="number"` and then trims/parses the form value by hand, or lets an async command confirmation auto-close before the mutation result is known.
 
 ### 6. Tests Required
 
 - HTTP handler tests must assert new response shapes for dashboard, config commands, cron preview, activity cursors, activity log filters, and OpenAPI schema.
 - HTTP/storage/runtime tests must cover config validation, create conflict,
-  rename to unused target, rename conflict, forced overwrite, and source/target
-  runtime stop isolation.
+  forced create conflict, rename to unused target, forced rename conflict, and
+  source/target runtime stop isolation for successful saves.
 - Runtime tests must assert that stopped immediate runs clear `PlanSummary.total_bytes_raw` and `download_count` while preserving `last_run`, and that scheduled runtime items remain registered after a trigger but also clear current-run row metrics.
 - Tests must assert old runtime routes are absent from OpenAPI and return `404`.
 - Frontend contract changes require `npm --prefix frontend run api:generate` and `npm --prefix frontend run build`.
+- Frontend command-confirmation changes must verify the dialog stays pending
+  while the mutation is in flight, closes on success, and leaves a retry/cancel
+  path on failure.
 - Go API changes require `gofmt -w .` and `go test ./...`.
 - Page-shell changes should assert `/` loads `/static/app/assets/app.js`, not retired static JS.
 
@@ -134,7 +152,7 @@ await apiClient.saveConfig(form.name, form as ConfigWritable)
 ```typescript
 const projection = projectConfigForm(form, 'save')
 if (projection.ok) {
-  await apiClient.saveConfig(sourceName, projection.payload, { mode, force })
+  await apiClient.saveConfig(sourceName, projection.payload, { mode })
 }
 ```
 

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { BoltIcon, Clock3Icon, RotateCcwIcon, SaveIcon, XIcon } from '@lucide/vue'
+import { BoltIcon, Clock3Icon, PlusIcon, RotateCcwIcon, SaveIcon, Trash2Icon, XIcon } from '@lucide/vue'
+import { computed } from 'vue'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   NumberField,
@@ -24,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/spinner'
 import type { ConfigEditorField, ConfigValidationErrors } from '@/domain/configEditor'
@@ -71,6 +73,30 @@ const emit = defineEmits<{
 
 function hasError(field: ConfigEditorField) {
   return Boolean(props.errors[field]?.length)
+}
+
+// URL 表格只改变编辑体验，保存/测试前仍由 projectConfigForm 统一拆分、去重和校验。
+const urlRows = computed({
+  get: () => props.form.urls.split(/\r?\n/),
+  set: (rows: string[]) => {
+    props.form.urls = rows.length ? rows.join('\n') : ''
+  },
+})
+
+function updateURLRow(index: number, value: string | number) {
+  const nextRows = [...urlRows.value]
+  nextRows[index] = String(value)
+  urlRows.value = nextRows
+}
+
+function addURLRow() {
+  urlRows.value = [...urlRows.value, '']
+}
+
+function removeURLRow(index: number) {
+  const nextRows = [...urlRows.value]
+  nextRows.splice(index, 1)
+  urlRows.value = nextRows.length ? nextRows : ['']
 }
 
 function handleOpenUpdate(nextOpen: boolean) {
@@ -158,14 +184,54 @@ function handleOpenUpdate(nextOpen: boolean) {
                   </div>
 
                   <Field :data-invalid="hasError('urls') ? true : undefined">
-                    <FieldLabel for="urls">URL 列表</FieldLabel>
-                    <Textarea
-                      id="urls"
-                      v-model="form.urls"
-                      :aria-invalid="hasError('urls') || undefined"
-                      rows="10"
-                      placeholder="每行一个 URL"
-                    />
+                    <div class="flex items-center justify-between gap-3">
+                      <FieldLabel>URL 列表</FieldLabel>
+                      <Button type="button" variant="outline" size="sm" @click="addURLRow">
+                        <PlusIcon data-icon="inline-start" />
+                        添加 URL
+                      </Button>
+                    </div>
+                    <div class="overflow-hidden rounded-lg border">
+                      <Table class="min-w-[520px]">
+                        <TableHeader class="bg-muted">
+                          <TableRow>
+                            <TableHead class="w-[56px] text-right">序号</TableHead>
+                            <TableHead>URL</TableHead>
+                            <TableHead class="w-[48px]">
+                              <span class="sr-only">操作</span>
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          <TableRow v-for="(row, index) in urlRows" :key="`url-row-${index}`">
+                            <TableCell class="text-right text-muted-foreground">
+                              {{ index + 1 }}
+                            </TableCell>
+                            <TableCell class="min-w-[360px]">
+                              <Input
+                                :id="`url-row-input-${index}`"
+                                :model-value="row"
+                                :aria-invalid="hasError('urls') || undefined"
+                                placeholder="https://example.com/file"
+                                @update:model-value="updateURLRow(index, $event)"
+                              />
+                            </TableCell>
+                            <TableCell class="text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                :disabled="urlRows.length === 1 && !row"
+                                @click="removeURLRow(index)"
+                              >
+                                <Trash2Icon data-icon="inline-start" />
+                                <span class="sr-only">删除 URL</span>
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
                     <FieldError :errors="errors.urls" />
                   </Field>
                 </FieldGroup>
@@ -266,6 +332,9 @@ function handleOpenUpdate(nextOpen: boolean) {
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldDescription>
+                      单条 URL 连续下载达到该秒数后切换下一条，留空为不按时长切换。
+                    </FieldDescription>
                     <FieldError :errors="errors.url_switch_interval" />
                   </Field>
                   <Field :data-invalid="hasError('thread_start_delay') ? true : undefined">
@@ -284,6 +353,9 @@ function handleOpenUpdate(nextOpen: boolean) {
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldDescription>
+                      每个线程启动前等待的秒数，用于错峰发起连接，留空为同时启动。
+                    </FieldDescription>
                     <FieldError :errors="errors.thread_start_delay" />
                   </Field>
                 </FieldGroup>

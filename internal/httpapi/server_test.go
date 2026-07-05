@@ -131,7 +131,7 @@ func TestConfigurationCommandReturnsUpdatedDashboard(t *testing.T) {
 	}
 }
 
-func TestSaveConfigurationValidatesAndProtectsOverwrite(t *testing.T) {
+func TestSaveConfigurationValidatesAndRejectsDuplicateCreate(t *testing.T) {
 	server := newTestServer(t)
 	initial := model.Config{URLs: []string{"https://example.com/a"}, Threads: 2, URLStrategy: "random"}
 	if err := storage.SaveConfigEntry(server.Manager.Paths.ConfigFile, "demo", initial); err != nil {
@@ -159,16 +159,29 @@ func TestSaveConfigurationValidatesAndProtectsOverwrite(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPut, "/api/configurations/demo?mode=create&force=true", bytes.NewReader(data))
 	rec = httptest.NewRecorder()
 	server.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("force create overwrite status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("forced create duplicate should still conflict, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	cfg, ok, err := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "demo")
-	if err != nil || !ok || cfg.Threads != 3 {
-		t.Fatalf("force overwrite should update target ok=%v err=%v cfg=%+v", ok, err, cfg)
+	if err != nil || !ok || cfg.Threads != 2 {
+		t.Fatalf("duplicate create should keep original target ok=%v err=%v cfg=%+v", ok, err, cfg)
+	}
+
+	sameNameEdit := model.Config{Name: "demo", ConfigName: "demo", URLs: []string{"https://example.com/c"}, Threads: 4, URLStrategy: "round_robin"}
+	data, _ = json.Marshal(sameNameEdit)
+	req = httptest.NewRequest(http.MethodPut, "/api/configurations/demo?mode=edit", bytes.NewReader(data))
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same-name edit should not require force, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	cfg, ok, err = storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "demo")
+	if err != nil || !ok || cfg.Threads != 4 || cfg.URLStrategy != "round_robin" {
+		t.Fatalf("same-name edit should update target ok=%v err=%v cfg=%+v", ok, err, cfg)
 	}
 }
 
-func TestSaveConfigurationRenamesAndRequiresForceForExistingTarget(t *testing.T) {
+func TestSaveConfigurationRenamesRejectExistingTarget(t *testing.T) {
 	server := newTestServer(t)
 	if err := storage.SaveConfigEntry(server.Manager.Paths.ConfigFile, "one", model.Config{URLs: []string{"https://example.com/one"}, Threads: 1, URLStrategy: "random"}); err != nil {
 		t.Fatalf("seed one: %v", err)
@@ -183,21 +196,21 @@ func TestSaveConfigurationRenamesAndRequiresForceForExistingTarget(t *testing.T)
 	rec := httptest.NewRecorder()
 	server.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("rename overwrite should conflict, status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("duplicate rename should conflict, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodPut, "/api/configurations/one?mode=edit&force=true", bytes.NewReader(data))
 	rec = httptest.NewRecorder()
 	server.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("force rename overwrite status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("forced rename duplicate should still conflict, status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if _, ok, _ := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "one"); ok {
-		t.Fatalf("source config should be removed after rename")
+	if cfg, ok, _ := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "one"); !ok || cfg.Threads != 1 {
+		t.Fatalf("source config should remain after rejected rename ok=%v cfg=%+v", ok, cfg)
 	}
 	cfg, ok, err := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "two")
-	if err != nil || !ok || cfg.Threads != 4 || cfg.URLStrategy != "round_robin" {
-		t.Fatalf("target config should be overwritten ok=%v err=%v cfg=%+v", ok, err, cfg)
+	if err != nil || !ok || cfg.Threads != 2 || cfg.URLStrategy != "random" {
+		t.Fatalf("target config should remain after rejected rename ok=%v err=%v cfg=%+v", ok, err, cfg)
 	}
 }
 

@@ -759,7 +759,7 @@ export type SaveConfigurationData = {
     };
     query?: {
         /**
-         * 确认覆盖已有目标配置
+         * 兼容旧覆盖确认参数
          */
         force?: boolean;
         /**

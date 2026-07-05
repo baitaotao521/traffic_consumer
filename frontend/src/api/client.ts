@@ -45,7 +45,6 @@ export class ApiError extends Error {
 }
 
 export type SaveConfigOptions = {
-  force?: boolean
   mode?: 'create' | 'edit'
 }
 
@@ -112,7 +111,6 @@ export const apiClient = {
     return unwrap(saveConfiguration({
       path: { name },
       query: {
-        force: options.force,
         mode: options.mode,
       },
       body: config,

@@ -3,7 +3,6 @@ import { CircleAlertIcon, Trash2Icon } from '@lucide/vue'
 
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -12,6 +11,7 @@ import {
   AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 withDefaults(
@@ -51,14 +51,15 @@ defineEmits<{
         <AlertDialogCancel :disabled="pending" @click="$emit('cancel')">
           取消
         </AlertDialogCancel>
-        <AlertDialogAction
+        <Button
+          type="button"
           :variant="variant === 'destructive' ? 'destructive' : 'default'"
           :disabled="pending"
           @click="$emit('confirm')"
         >
           <Spinner v-if="pending" />
           {{ confirmLabel }}
-        </AlertDialogAction>
+        </Button>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>

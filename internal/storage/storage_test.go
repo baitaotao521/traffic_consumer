@@ -72,7 +72,7 @@ func TestLoadConfigAcceptsLegacySingleURLAndHeaderArray(t *testing.T) {
 	}
 }
 
-func TestSaveConfigEntryAsRenamesAndRequiresForceForOverwrite(t *testing.T) {
+func TestSaveConfigEntryAsRejectsDuplicateRenameTarget(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := SaveConfigEntry(path, "one", model.Config{URLs: []string{"https://example.com/one"}, Threads: 1}); err != nil {
 		t.Fatalf("save one: %v", err)
@@ -86,36 +86,17 @@ func TestSaveConfigEntryAsRenamesAndRequiresForceForOverwrite(t *testing.T) {
 		TargetName: "two",
 		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 3},
 	}); !errors.Is(err, ErrConfigConflict) {
-		t.Fatalf("expected overwrite conflict, got %v", err)
+		t.Fatalf("expected duplicate target conflict, got %v", err)
 	}
 	if cfg, ok, _ := LoadConfigEntry(path, "one"); !ok || cfg.Threads != 1 {
-		t.Fatalf("source should remain after rejected overwrite: ok=%v cfg=%+v", ok, cfg)
+		t.Fatalf("source should remain after rejected duplicate rename: ok=%v cfg=%+v", ok, cfg)
 	}
 	if cfg, ok, _ := LoadConfigEntry(path, "two"); !ok || cfg.Threads != 2 {
-		t.Fatalf("target should remain after rejected overwrite: ok=%v cfg=%+v", ok, cfg)
-	}
-
-	result, err := SaveConfigEntryAs(path, SaveConfigEntryOptions{
-		SourceName: "one",
-		TargetName: "two",
-		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 3},
-		Force:      true,
-	})
-	if err != nil {
-		t.Fatalf("force overwrite: %v", err)
-	}
-	if !result.SourceExisted || !result.TargetExisted || !result.Renamed || !result.Overwritten {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if _, ok, _ := LoadConfigEntry(path, "one"); ok {
-		t.Fatalf("source should be removed after force rename overwrite")
-	}
-	if cfg, ok, _ := LoadConfigEntry(path, "two"); !ok || cfg.Threads != 3 {
-		t.Fatalf("target should contain new config: ok=%v cfg=%+v", ok, cfg)
+		t.Fatalf("target should remain after rejected duplicate rename: ok=%v cfg=%+v", ok, cfg)
 	}
 }
 
-func TestSaveConfigEntryAsRequiresForceForCreateExistingTarget(t *testing.T) {
+func TestSaveConfigEntryAsRejectsDuplicateCreateTarget(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := SaveConfigEntry(path, "demo", model.Config{URLs: []string{"https://example.com/old"}, Threads: 1}); err != nil {
 		t.Fatalf("save demo: %v", err)
@@ -127,27 +108,32 @@ func TestSaveConfigEntryAsRequiresForceForCreateExistingTarget(t *testing.T) {
 		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 2},
 		RequireNew: true,
 	}); !errors.Is(err, ErrConfigConflict) {
-		t.Fatalf("expected create conflict, got %v", err)
+		t.Fatalf("expected duplicate create conflict, got %v", err)
 	}
 	if cfg, ok, _ := LoadConfigEntry(path, "demo"); !ok || cfg.Threads != 1 {
-		t.Fatalf("target should remain unchanged after rejected create overwrite: ok=%v cfg=%+v", ok, cfg)
+		t.Fatalf("target should remain unchanged after rejected duplicate create: ok=%v cfg=%+v", ok, cfg)
+	}
+}
+
+func TestSaveConfigEntryAsAllowsSameNameEdit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := SaveConfigEntry(path, "demo", model.Config{URLs: []string{"https://example.com/old"}, Threads: 1}); err != nil {
+		t.Fatalf("save demo: %v", err)
 	}
 
 	result, err := SaveConfigEntryAs(path, SaveConfigEntryOptions{
 		SourceName: "demo",
 		TargetName: "demo",
 		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 2},
-		Force:      true,
-		RequireNew: true,
 	})
 	if err != nil {
-		t.Fatalf("force create overwrite: %v", err)
+		t.Fatalf("same-name edit: %v", err)
 	}
-	if !result.SourceExisted || !result.TargetExisted || result.Renamed || !result.Overwritten {
+	if !result.SourceExisted || !result.TargetExisted || result.Renamed {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	if cfg, ok, _ := LoadConfigEntry(path, "demo"); !ok || cfg.Threads != 2 {
-		t.Fatalf("target should update after forced create overwrite: ok=%v cfg=%+v", ok, cfg)
+		t.Fatalf("target should update after same-name edit: ok=%v cfg=%+v", ok, cfg)
 	}
 }
 

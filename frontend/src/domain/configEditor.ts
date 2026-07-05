@@ -95,6 +95,20 @@ function hasErrors(errors: ConfigValidationErrors) {
   return Object.values(errors).some((messages) => messages && messages.length > 0)
 }
 
+export function normalizeConfigName(name: string) {
+  const text = name.trim()
+  return text || 'default'
+}
+
+export function sameConfigName(left: string, right: string) {
+  return normalizeConfigName(left) === normalizeConfigName(right)
+}
+
+export function configNameExists(names: string[], targetName: string) {
+  const target = normalizeConfigName(targetName)
+  return names.some((name) => normalizeConfigName(name) === target)
+}
+
 function runeLength(value: string) {
   return Array.from(value).length
 }
@@ -433,14 +447,14 @@ export function snapshotConfigForm(form: ConfigForm): string {
 }
 
 export function activeRuntimeNames(plans: PlanSummary[], status: StatusPayload, names: string[]) {
-  const requested = new Set(names.filter(Boolean))
+  const requested = new Set(names.map((name) => name.trim()).filter(Boolean).map(normalizeConfigName))
   const active = new Set<string>()
   for (const plan of plans) {
-    if (requested.has(plan.name) && (plan.running || plan.scheduler_running)) {
+    if (requested.has(normalizeConfigName(plan.name)) && (plan.running || plan.scheduler_running)) {
       active.add(plan.name)
     }
   }
-  if (status.config && requested.has(status.config) && status.state !== 'stopped') {
+  if (status.config && requested.has(normalizeConfigName(status.config)) && status.state !== 'stopped') {
     active.add(status.config)
   }
   return Array.from(active)
