@@ -301,3 +301,36 @@ Corrected the realtime aggregate dashboard charts by separating current speed, t
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Remove Python backend
+
+**Date**: 2026-07-06
+**Task**: Remove Python backend
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Removed the deprecated product Python backend and Python tests, updated user docs and backend specs to make Go/Vue the only maintained runtime, and verified Go tests plus frontend build.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9066c78` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

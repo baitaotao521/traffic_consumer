@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
-- **Last Active**: 2026-07-05
+- **Total Sessions**: 10
+- **Last Active**: 2026-07-06
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~303 | Active |
+| `journal-1.md` | ~336 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-07-06 | Remove Python backend | `9066c78` | `codex/go-http-backend-rewrite` |
 | 9 | 2026-07-05 | Fix realtime aggregate charts | `eae78d3` | `codex/go-http-backend-rewrite` |
 | 8 | 2026-07-05 | Split frontend build chunks | `8531d76` | `codex/go-http-backend-rewrite` |
 | 7 | 2026-07-05 | Config editor save flow hardening | `3744f2b` | `codex/go-http-backend-rewrite` |
