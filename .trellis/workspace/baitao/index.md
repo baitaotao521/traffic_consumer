@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-07-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~237 | Active |
+| `journal-1.md` | ~270 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-05 | Split frontend build chunks | `8531d76` | `codex/go-http-backend-rewrite` |
 | 7 | 2026-07-05 | Config editor save flow hardening | `3744f2b` | `codex/go-http-backend-rewrite` |
 | 6 | 2026-07-05 | Harden config editor guards | `5fc0409` | `codex/go-http-backend-rewrite` |
 | 5 | 2026-07-05 | Support multi-config runtime | `3e3e3e1` | `codex/go-http-backend-rewrite` |

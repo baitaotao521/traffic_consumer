@@ -235,3 +235,36 @@ Rejected duplicate config create/rename without overwrite confirmation, fixed as
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Split frontend build chunks
+
+**Date**: 2026-07-05
+**Task**: Split frontend build chunks
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Cleaned the production frontend build by splitting dashboard JavaScript into Rolldown chunks, keeping app.js as the Go-served entry script, and narrowly filtering the known VueUse pure annotation warning.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8531d76` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
