@@ -334,3 +334,36 @@ Removed the deprecated product Python backend and Python tests, updated user doc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Write frontend guidelines
+
+**Date**: 2026-07-06
+**Task**: Write frontend guidelines
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Added frontend Trellis specs for Vue/Vite dashboard structure, API state flow, shadcn-vue component rules, styling/copy standards, and quality gates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `00484da` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
