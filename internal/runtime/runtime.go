@@ -67,6 +67,20 @@ type ResumeTarget struct {
 	AutoStart bool
 }
 
+// SaveConfigOptions 描述一次 Web 配置保存、重命名或覆盖操作。
+type SaveConfigOptions struct {
+	// SourceName 是编辑开始时的配置名，重命名时会在写入目标后删除。
+	SourceName string
+	// TargetName 是表单提交后的最终配置名。
+	TargetName string
+	// Config 是已经通过 Web 层业务校验的配置内容。
+	Config model.Config
+	// Force 允许覆盖不同名的已有目标配置。
+	Force bool
+	// RequireNew 表示本次操作来自“新建配置”，目标已存在时必须显式确认覆盖。
+	RequireNew bool
+}
+
 // New 创建运行态管理器。
 func New(paths config.Paths) *Manager {
 	loc, err := time.LoadLocation("Asia/Shanghai")
@@ -602,10 +616,49 @@ func (m *Manager) PlanDetail(name string) (model.PlanDetailPayload, error) {
 
 // SaveConfig 保存配置；若同名运行态存在，先停止旧计划。
 func (m *Manager) SaveConfig(name string, cfg model.Config) error {
-	name = storage.NormalizeConfigName(name)
-	m.StopRuntimeConfig(name)
-	cfg = cfg.Normalize(config.DefaultURLs, name, false)
-	return storage.SaveConfigEntry(m.Paths.ConfigFile, name, cfg)
+	_, err := m.SaveConfigAs(SaveConfigOptions{
+		SourceName: name,
+		TargetName: name,
+		Config:     cfg,
+	})
+	return err
+}
+
+// SaveConfigAs 保存、重命名或覆盖配置，并在写入前停止所有受影响的同名运行态。
+func (m *Manager) SaveConfigAs(options SaveConfigOptions) (string, error) {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	sourceName := storage.NormalizeConfigName(options.SourceName)
+	targetName := storage.NormalizeConfigName(firstNonEmpty(options.TargetName, sourceName))
+	configs, err := storage.LoadConfigs(m.Paths.ConfigFile)
+	if err != nil {
+		return "", err
+	}
+	_, targetExists := configs[targetName]
+	if targetExists && (options.RequireNew || sourceName != targetName) && !options.Force {
+		return "", storage.ConfigConflictError{Name: targetName}
+	}
+
+	stopNames := []string{sourceName}
+	if targetName != sourceName {
+		stopNames = append(stopNames, targetName)
+	}
+	for _, name := range uniqueNames(stopNames) {
+		m.stopRuntimeConfig(name)
+	}
+
+	cfg := options.Config.Normalize(config.DefaultURLs, targetName, false)
+	if _, err := storage.SaveConfigEntryAs(m.Paths.ConfigFile, storage.SaveConfigEntryOptions{
+		SourceName: sourceName,
+		TargetName: targetName,
+		Config:     cfg,
+		Force:      options.Force,
+		RequireNew: options.RequireNew,
+	}); err != nil {
+		return "", err
+	}
+	return targetName, nil
 }
 
 // DeleteConfig 删除配置并同步停止同名运行态。
@@ -911,6 +964,20 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func uniqueNames(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		name := storage.NormalizeConfigName(value)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		result = append(result, name)
+	}
+	return result
 }
 
 func colorForLevel(level string) string {

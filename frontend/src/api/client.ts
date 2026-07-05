@@ -44,6 +44,11 @@ export class ApiError extends Error {
   }
 }
 
+export type SaveConfigOptions = {
+  force?: boolean
+  mode?: 'create' | 'edit'
+}
+
 function isErrorModel(value: unknown): value is ErrorModel {
   if (typeof value !== 'object' || value === null || value instanceof Error) return false
   return ['detail', 'title', 'status', 'errors', 'type'].some((key) => key in value)
@@ -103,8 +108,15 @@ export const apiClient = {
     return unwrap(getConfiguration({ path: { name } }))
   },
 
-  saveConfig(name: string, config: ConfigWritable): Promise<ConfigCommandResponse> {
-    return unwrap(saveConfiguration({ path: { name }, body: config }))
+  saveConfig(name: string, config: ConfigWritable, options: SaveConfigOptions = {}): Promise<ConfigCommandResponse> {
+    return unwrap(saveConfiguration({
+      path: { name },
+      query: {
+        force: options.force,
+        mode: options.mode,
+      },
+      body: config,
+    }))
   },
 
   deleteConfig(name: string): Promise<ConfigCommandResponse> {

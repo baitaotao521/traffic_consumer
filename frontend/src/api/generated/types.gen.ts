@@ -757,11 +757,28 @@ export type SaveConfigurationData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * 确认覆盖已有目标配置
+         */
+        force?: boolean;
+        /**
+         * 保存模式：create 或 edit
+         */
+        mode?: string;
+    };
     url: '/configurations/{name}';
 };
 
 export type SaveConfigurationErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorModel;
+    /**
+     * Conflict
+     */
+    409: ErrorModel;
     /**
      * Unprocessable Entity
      */

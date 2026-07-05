@@ -12,6 +12,7 @@ import (
 	"github.com/baitaotao521/traffic_consumer/internal/config"
 	"github.com/baitaotao521/traffic_consumer/internal/model"
 	appruntime "github.com/baitaotao521/traffic_consumer/internal/runtime"
+	"github.com/baitaotao521/traffic_consumer/internal/storage"
 )
 
 func TestDashboardReturnsAggregateSnapshot(t *testing.T) {
@@ -127,6 +128,119 @@ func TestConfigurationCommandReturnsUpdatedDashboard(t *testing.T) {
 	}
 	if len(deleted.Dashboard.Configs) != 0 {
 		t.Fatalf("delete should return refreshed dashboard: %+v", deleted.Dashboard.Configs)
+	}
+}
+
+func TestSaveConfigurationValidatesAndProtectsOverwrite(t *testing.T) {
+	server := newTestServer(t)
+	initial := model.Config{URLs: []string{"https://example.com/a"}, Threads: 2, URLStrategy: "random"}
+	if err := storage.SaveConfigEntry(server.Manager.Paths.ConfigFile, "demo", initial); err != nil {
+		t.Fatalf("seed demo: %v", err)
+	}
+
+	invalid := model.Config{URLs: []string{"https://example.com/a"}, Threads: 0, URLStrategy: "random"}
+	data, _ := json.Marshal(invalid)
+	req := httptest.NewRequest(http.MethodPut, "/api/configurations/bad?mode=create", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid save should return 400, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	replacement := model.Config{Name: "demo", URLs: []string{"https://example.com/b"}, Threads: 3, URLStrategy: "random"}
+	data, _ = json.Marshal(replacement)
+	req = httptest.NewRequest(http.MethodPut, "/api/configurations/demo?mode=create", bytes.NewReader(data))
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("create existing should return conflict, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/configurations/demo?mode=create&force=true", bytes.NewReader(data))
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force create overwrite status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	cfg, ok, err := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "demo")
+	if err != nil || !ok || cfg.Threads != 3 {
+		t.Fatalf("force overwrite should update target ok=%v err=%v cfg=%+v", ok, err, cfg)
+	}
+}
+
+func TestSaveConfigurationRenamesAndRequiresForceForExistingTarget(t *testing.T) {
+	server := newTestServer(t)
+	if err := storage.SaveConfigEntry(server.Manager.Paths.ConfigFile, "one", model.Config{URLs: []string{"https://example.com/one"}, Threads: 1, URLStrategy: "random"}); err != nil {
+		t.Fatalf("seed one: %v", err)
+	}
+	if err := storage.SaveConfigEntry(server.Manager.Paths.ConfigFile, "two", model.Config{URLs: []string{"https://example.com/two"}, Threads: 2, URLStrategy: "random"}); err != nil {
+		t.Fatalf("seed two: %v", err)
+	}
+
+	rename := model.Config{Name: "two", ConfigName: "two", URLs: []string{"https://example.com/new"}, Threads: 4, URLStrategy: "round_robin"}
+	data, _ := json.Marshal(rename)
+	req := httptest.NewRequest(http.MethodPut, "/api/configurations/one?mode=edit", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("rename overwrite should conflict, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/configurations/one?mode=edit&force=true", bytes.NewReader(data))
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force rename overwrite status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok, _ := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "one"); ok {
+		t.Fatalf("source config should be removed after rename")
+	}
+	cfg, ok, err := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "two")
+	if err != nil || !ok || cfg.Threads != 4 || cfg.URLStrategy != "round_robin" {
+		t.Fatalf("target config should be overwritten ok=%v err=%v cfg=%+v", ok, err, cfg)
+	}
+}
+
+func TestSaveConfigurationRenamesToUnusedTarget(t *testing.T) {
+	server := newTestServer(t)
+	if err := storage.SaveConfigEntry(server.Manager.Paths.ConfigFile, "one", model.Config{URLs: []string{"https://example.com/one"}, Threads: 1, URLStrategy: "random"}); err != nil {
+		t.Fatalf("seed one: %v", err)
+	}
+
+	rename := model.Config{Name: "three", ConfigName: "three", URLs: []string{"https://example.com/three"}, Threads: 3, URLStrategy: "round_robin"}
+	data, _ := json.Marshal(rename)
+	req := httptest.NewRequest(http.MethodPut, "/api/configurations/one?mode=edit", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rename to unused target status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok, _ := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "one"); ok {
+		t.Fatalf("source config should be removed after rename")
+	}
+	cfg, ok, err := storage.LoadConfigEntry(server.Manager.Paths.ConfigFile, "three")
+	if err != nil || !ok || cfg.Threads != 3 || cfg.URLStrategy != "round_robin" {
+		t.Fatalf("target config should be saved ok=%v err=%v cfg=%+v", ok, err, cfg)
+	}
+}
+
+func TestRuntimeCommandsValidateWebConfigBeforeStart(t *testing.T) {
+	server := newTestServer(t)
+	payload := model.Config{ConfigName: "demo", URLs: []string{}, Threads: 1, URLStrategy: "random"}
+	data, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/commands/start-runtime", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("start empty URLs should return 400, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/commands/start-temp-test", bytes.NewReader(data))
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("temp test empty URLs should return 400, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

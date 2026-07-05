@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/robfig/cron/v3"
 
+	"github.com/baitaotao521/traffic_consumer/internal/configguard"
 	"github.com/baitaotao521/traffic_consumer/internal/model"
 	appruntime "github.com/baitaotao521/traffic_consumer/internal/runtime"
 	"github.com/baitaotao521/traffic_consumer/internal/storage"
@@ -132,6 +133,10 @@ type getConfigOutput struct {
 type saveConfigInput struct {
 	// Name 是路径中的配置名称。
 	Name string `path:"name" doc:"配置名称"`
+	// Force 表示用户已经确认覆盖已有目标配置。
+	Force bool `query:"force" doc:"确认覆盖已有目标配置"`
+	// Mode 区分新建和编辑，create 模式会在目标已存在时要求 force。
+	Mode string `query:"mode" doc:"保存模式：create 或 edit"`
 	// Body 是要保存的配置内容。
 	Body model.Config
 }
@@ -260,13 +265,24 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 		Path:        "/configurations/{name}",
 		Summary:     "保存配置",
 		Tags:        []string{"Configurations"},
-		Errors:      []int{http.StatusInternalServerError},
+		Errors:      []int{http.StatusBadRequest, http.StatusConflict, http.StatusInternalServerError},
 	}, func(ctx context.Context, input *saveConfigInput) (*configCommandOutput, error) {
-		name := storage.NormalizeConfigName(input.Name)
-		if err := s.Manager.SaveConfig(name, input.Body); err != nil {
-			return nil, serverError(err)
+		sourceName := storage.NormalizeConfigName(input.Name)
+		cfg, targetName, err := configguard.Validate(sourceName, input.Body, configguard.ModeSave)
+		if err != nil {
+			return nil, commandError(err)
 		}
-		resource, err := s.configResource(name)
+		savedName, err := s.Manager.SaveConfigAs(appruntime.SaveConfigOptions{
+			SourceName: sourceName,
+			TargetName: targetName,
+			Config:     cfg,
+			Force:      input.Force,
+			RequireNew: strings.EqualFold(strings.TrimSpace(input.Mode), "create"),
+		})
+		if err != nil {
+			return nil, commandError(err)
+		}
+		resource, err := s.configResource(savedName)
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +293,7 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 		return &configCommandOutput{Body: ConfigCommandResponse{
 			Item:      &resource,
 			Dashboard: dashboard,
-			Message:   "配置 \"" + name + "\" 已保存。",
+			Message:   "配置 \"" + savedName + "\" 已保存。",
 		}}, nil
 	})
 
@@ -315,7 +331,11 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 		Tags:        []string{"Commands"},
 		Errors:      []int{http.StatusConflict, http.StatusInternalServerError},
 	}, func(ctx context.Context, input *configRuntimeInput) (*runtimeCommandOutput, error) {
-		status, err := s.Manager.StartConsumer(input.Body)
+		cfg, _, err := configguard.Validate("", input.Body, configguard.ModeStart)
+		if err != nil {
+			return nil, commandError(err)
+		}
+		status, err := s.Manager.StartConsumer(cfg)
 		if err != nil {
 			return nil, huma.Error409Conflict(err.Error())
 		}
@@ -330,7 +350,11 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 		Tags:        []string{"Commands"},
 		Errors:      []int{http.StatusConflict, http.StatusInternalServerError},
 	}, func(ctx context.Context, input *configRuntimeInput) (*runtimeCommandOutput, error) {
-		status, err := s.Manager.StartTempTest(input.Body)
+		cfg, _, err := configguard.Validate("", input.Body, configguard.ModeTempTest)
+		if err != nil {
+			return nil, commandError(err)
+		}
+		status, err := s.Manager.StartTempTest(cfg)
 		if err != nil {
 			return nil, huma.Error409Conflict(err.Error())
 		}
@@ -500,6 +524,16 @@ func planDetailError(err error) error {
 
 func serverError(err error) error {
 	return huma.Error500InternalServerError(err.Error())
+}
+
+func commandError(err error) error {
+	if configguard.IsValidationError(err) {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if errors.Is(err, storage.ErrConfigConflict) {
+		return huma.Error409Conflict(err.Error())
+	}
+	return serverError(err)
 }
 
 func parseLogSources(raw string) []model.LogSource {

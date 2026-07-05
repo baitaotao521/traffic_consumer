@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { Ref } from 'vue'
 
 import { apiClient } from './client'
+import type { SaveConfigOptions } from './client'
 import type {
   ConfigCommandResponse,
   ConfigWritable,
@@ -70,8 +71,11 @@ export function useDashboardCommandMutation<TVariables, TResponse extends Dashbo
 
 export function useConfigCommandMutations() {
   return {
-    saveConfig: useDashboardCommandMutation<{ name: string; config: ConfigWritable }, ConfigCommandResponse>((variables) =>
-      apiClient.saveConfig(variables.name, variables.config),
+    saveConfig: useDashboardCommandMutation<
+      { name: string; config: ConfigWritable; options?: SaveConfigOptions },
+      ConfigCommandResponse
+    >((variables) =>
+      apiClient.saveConfig(variables.name, variables.config, variables.options),
     ),
     deleteConfig: useDashboardCommandMutation<string, ConfigCommandResponse>((name) => apiClient.deleteConfig(name)),
   }

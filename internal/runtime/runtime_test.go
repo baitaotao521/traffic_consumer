@@ -396,6 +396,52 @@ func TestStartTempTestRecordsResultForSavedConfig(t *testing.T) {
 	})
 }
 
+func TestStartTempTestRejectsMultipleScheduledPlans(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(1)
+	for _, name := range []string{"one", "two"} {
+		if _, err := manager.StartConsumer(model.Config{
+			ConfigName:  name,
+			URLs:        []string{},
+			Threads:     1,
+			Interval:    &interval,
+			URLStrategy: "round_robin",
+		}); err != nil {
+			t.Fatalf("start scheduled %s: %v", name, err)
+		}
+	}
+
+	_, err := manager.StartTempTest(model.Config{ConfigName: "one", URLs: []string{}, Threads: 1, URLStrategy: "random"})
+	if err == nil || !strings.Contains(err.Error(), "多个等待中的计划") {
+		t.Fatalf("expected multiple scheduled plan rejection, got %v", err)
+	}
+}
+
+func TestStartTempTestRejectsScheduledPlanNameMismatch(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(1)
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "one",
+		URLs:        []string{},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start scheduled one: %v", err)
+	}
+
+	_, err := manager.StartTempTest(model.Config{ConfigName: "two", URLs: []string{}, Threads: 1, URLStrategy: "random"})
+	if err == nil || !strings.Contains(err.Error(), "当前等待中的计划是 \"one\"") {
+		t.Fatalf("expected scheduled plan mismatch rejection, got %v", err)
+	}
+}
+
 func TestSaveAndDeleteConfigOnlyStopSameNamedRuntime(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	manager := New(paths)
@@ -428,6 +474,48 @@ func TestSaveAndDeleteConfigOnlyStopSameNamedRuntime(t *testing.T) {
 	plans = plansByName(manager.PlanSummaries())
 	if plans["two"].Name != "two" || !plans["two"].SchedulerRunning {
 		t.Fatalf("deleting one should keep two scheduled: %+v", plans)
+	}
+}
+
+func TestSaveConfigAsStopsSourceAndTargetOnly(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(1)
+	for _, name := range []string{"one", "two", "three"} {
+		if _, err := manager.StartConsumer(model.Config{
+			ConfigName:  name,
+			URLs:        []string{},
+			Threads:     1,
+			Interval:    &interval,
+			URLStrategy: "round_robin",
+		}); err != nil {
+			t.Fatalf("start %s: %v", name, err)
+		}
+	}
+
+	savedName, err := manager.SaveConfigAs(SaveConfigOptions{
+		SourceName: "one",
+		TargetName: "two",
+		Config: model.Config{
+			ConfigName:  "two",
+			URLs:        []string{},
+			Threads:     2,
+			URLStrategy: "random",
+		},
+		Force: true,
+	})
+	if err != nil {
+		t.Fatalf("force rename save: %v", err)
+	}
+	if savedName != "two" {
+		t.Fatalf("unexpected saved name: %s", savedName)
+	}
+
+	plans := plansByName(manager.PlanSummaries())
+	if plans["one"].SchedulerRunning || plans["two"].SchedulerRunning || !plans["three"].SchedulerRunning {
+		t.Fatalf("rename overwrite should stop source/target only: %+v", plans)
 	}
 }
 

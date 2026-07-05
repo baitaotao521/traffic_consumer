@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,49 @@ import (
 )
 
 var jsonLocks sync.Map
+
+// ErrConfigConflict 表示保存或重命名配置时目标名称已经存在且未确认覆盖。
+var ErrConfigConflict = errors.New("config target already exists")
+
+// ConfigConflictError 保留可匹配的冲突类型，同时提供用户可见的中文错误。
+type ConfigConflictError struct {
+	// Name 是已经存在、需要确认覆盖的配置名。
+	Name string
+}
+
+func (e ConfigConflictError) Error() string {
+	return fmt.Sprintf("配置 \"%s\" 已存在。", e.Name)
+}
+
+func (e ConfigConflictError) Is(target error) bool {
+	return target == ErrConfigConflict
+}
+
+// SaveConfigEntryResult 描述一次配置保存是否覆盖或重命名了已有条目。
+type SaveConfigEntryResult struct {
+	// SourceExisted 表示路径中的原配置名称在保存前已经存在。
+	SourceExisted bool
+	// TargetExisted 表示目标配置名称在保存前已经存在。
+	TargetExisted bool
+	// Renamed 表示本次保存把源配置改名为目标配置。
+	Renamed bool
+	// Overwritten 表示本次保存覆盖了需要用户确认的已有目标配置。
+	Overwritten bool
+}
+
+// SaveConfigEntryOptions 描述一次 Web 保存需要在同一把 config.json 锁内判断的命名语义。
+type SaveConfigEntryOptions struct {
+	// SourceName 是编辑入口打开时对应的原配置名。
+	SourceName string
+	// TargetName 是表单保存后的最终配置名。
+	TargetName string
+	// Config 是要写入目标名称下的配置体。
+	Config model.Config
+	// Force 表示用户已确认覆盖已有目标配置。
+	Force bool
+	// RequireNew 表示新建入口保存，目标已存在时必须显式确认覆盖。
+	RequireNew bool
+}
 
 // ReadJSON 安全读取 JSON；文件不存在或内容损坏时返回空对象，延续 Python 版容错行为。
 func ReadJSON(path string, target any) error {
@@ -123,6 +167,34 @@ func SaveConfigEntry(path, name string, cfg model.Config) error {
 		configs[name] = cfg
 		return true, nil
 	})
+}
+
+// SaveConfigEntryAs 在同一个 config.json 锁内完成创建、重命名和确认覆盖。
+func SaveConfigEntryAs(path string, options SaveConfigEntryOptions) (SaveConfigEntryResult, error) {
+	configs := map[string]model.Config{}
+	sourceName := NormalizeConfigName(options.SourceName)
+	targetName := NormalizeConfigName(options.TargetName)
+	result := SaveConfigEntryResult{}
+	err := MutateJSON(path, &configs, func() (bool, error) {
+		_, result.SourceExisted = configs[sourceName]
+		_, result.TargetExisted = configs[targetName]
+		result.Renamed = sourceName != targetName
+		result.Overwritten = result.TargetExisted && (result.Renamed || options.RequireNew)
+		if result.Overwritten && !options.Force {
+			return false, ConfigConflictError{Name: targetName}
+		}
+
+		// 命名配置的真实身份由外层 JSON key 表示，配置体内的临时名称字段不能写回文件。
+		cfg := options.Config
+		cfg.ConfigName = ""
+		cfg.Name = ""
+		configs[targetName] = cfg
+		if result.Renamed {
+			delete(configs, sourceName)
+		}
+		return true, nil
+	})
+	return result, err
 }
 
 // LoadConfigEntry 读取指定配置；第二个返回值表示配置是否存在。

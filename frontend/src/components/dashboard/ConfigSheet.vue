@@ -4,8 +4,8 @@ import { BoltIcon, Clock3Icon, RotateCcwIcon, SaveIcon, XIcon } from '@lucide/vu
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldContent, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   NumberField,
@@ -18,6 +18,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -25,6 +26,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/spinner'
+import type { ConfigEditorField, ConfigValidationErrors } from '@/domain/configEditor'
 import type { ConfigForm, HistoryRecord } from '@/types'
 
 const numberFieldInputClass = 'px-8 text-left'
@@ -45,43 +47,58 @@ const decimalNumberFieldProps = {
   },
 }
 
-defineProps<{
+const props = withDefaults(defineProps<{
   cronPreview: string[]
+  errors?: ConfigValidationErrors
   form: ConfigForm
   formatDateTime: (value?: string) => string
   lastRun?: HistoryRecord | null
   saving?: boolean
   testDisabled?: boolean
   testing?: boolean
-}>()
+}>(), {
+  errors: () => ({}),
+})
 
 const open = defineModel<boolean>('open', { required: true })
 
-defineEmits<{
+const emit = defineEmits<{
+  closeRequest: []
   reset: []
   save: []
   test: []
 }>()
+
+function hasError(field: ConfigEditorField) {
+  return Boolean(props.errors[field]?.length)
+}
+
+function handleOpenUpdate(nextOpen: boolean) {
+  if (nextOpen) {
+    open.value = true
+    return
+  }
+  emit('closeRequest')
+}
 </script>
 
 <template>
-  <Dialog v-model:open="open">
+  <Dialog :open="open" @update:open="handleOpenUpdate">
     <DialogContent
       :show-close-button="false"
       class="h-[min(90vh,860px)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[1100px]"
     >
       <DialogHeader class="flex-row items-center justify-between border-b px-6 py-4">
         <DialogTitle>任务配置</DialogTitle>
-        <DialogClose as-child>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="shrink-0"
-          >
-            <XIcon />
-            <span class="sr-only">关闭</span>
-          </Button>
-        </DialogClose>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="shrink-0"
+          @click="$emit('closeRequest')"
+        >
+          <XIcon data-icon="inline-start" />
+          <span class="sr-only">关闭</span>
+        </Button>
       </DialogHeader>
 
       <ScrollArea class="min-h-0 flex-1">
@@ -93,13 +110,19 @@ defineEmits<{
               </CardHeader>
               <CardContent class="py-4">
                 <FieldGroup>
-                  <Field>
+                  <Field :data-invalid="hasError('name') ? true : undefined">
                     <FieldLabel for="config-name">配置名称</FieldLabel>
-                    <Input id="config-name" v-model="form.name" placeholder="输入配置名称" />
+                    <Input
+                      id="config-name"
+                      v-model="form.name"
+                      :aria-invalid="hasError('name') || undefined"
+                      placeholder="输入配置名称"
+                    />
+                    <FieldError :errors="errors.name" />
                   </Field>
 
                   <div class="grid gap-4 sm:grid-cols-2">
-                    <Field>
+                    <Field :data-invalid="hasError('threads') ? true : undefined">
                       <FieldLabel>线程数量</FieldLabel>
                       <NumberField
                         v-model="form.threads"
@@ -108,28 +131,42 @@ defineEmits<{
                       >
                         <NumberFieldContent class="w-full">
                           <NumberFieldDecrement />
-                          <NumberFieldInput :class="numberFieldInputClass" />
+                          <NumberFieldInput
+                            :aria-invalid="hasError('threads') || undefined"
+                            :class="numberFieldInputClass"
+                          />
                           <NumberFieldIncrement />
                         </NumberFieldContent>
                       </NumberField>
+                      <FieldError :errors="errors.threads" />
                     </Field>
-                    <Field>
+                    <Field :data-invalid="hasError('url_strategy') ? true : undefined">
                       <FieldLabel for="url-strategy">URL 策略</FieldLabel>
                       <Select v-model="form.url_strategy">
-                        <SelectTrigger id="url-strategy">
+                        <SelectTrigger id="url-strategy" :aria-invalid="hasError('url_strategy') || undefined">
                           <SelectValue placeholder="随机均衡" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="random">随机均衡</SelectItem>
-                          <SelectItem value="round_robin">轮询顺序</SelectItem>
+                          <SelectGroup>
+                            <SelectItem value="random">随机均衡</SelectItem>
+                            <SelectItem value="round_robin">轮询顺序</SelectItem>
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
+                      <FieldError :errors="errors.url_strategy" />
                     </Field>
                   </div>
 
-                  <Field>
+                  <Field :data-invalid="hasError('urls') ? true : undefined">
                     <FieldLabel for="urls">URL 列表</FieldLabel>
-                    <Textarea id="urls" v-model="form.urls" rows="10" placeholder="每行一个 URL" />
+                    <Textarea
+                      id="urls"
+                      v-model="form.urls"
+                      :aria-invalid="hasError('urls') || undefined"
+                      rows="10"
+                      placeholder="每行一个 URL"
+                    />
+                    <FieldError :errors="errors.urls" />
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -141,21 +178,25 @@ defineEmits<{
               </CardHeader>
               <CardContent class="py-4">
                 <FieldGroup class="grid gap-4 sm:grid-cols-2">
-                  <Field>
-                      <FieldLabel>限速 (MB/s)</FieldLabel>
-                      <NumberField
-                        v-model="form.limit_speed"
-                        v-bind="decimalNumberFieldProps"
-                        class="w-full gap-0"
-                      >
-                        <NumberFieldContent class="w-full">
-                          <NumberFieldDecrement />
-                          <NumberFieldInput :class="numberFieldInputClass" />
-                          <NumberFieldIncrement />
-                        </NumberFieldContent>
-                      </NumberField>
-                    </Field>
-                  <Field>
+                  <Field :data-invalid="hasError('limit_speed') ? true : undefined">
+                    <FieldLabel>限速 (MB/s)</FieldLabel>
+                    <NumberField
+                      v-model="form.limit_speed"
+                      v-bind="decimalNumberFieldProps"
+                      class="w-full gap-0"
+                    >
+                      <NumberFieldContent class="w-full">
+                        <NumberFieldDecrement />
+                        <NumberFieldInput
+                          :aria-invalid="hasError('limit_speed') || undefined"
+                          :class="numberFieldInputClass"
+                        />
+                        <NumberFieldIncrement />
+                      </NumberFieldContent>
+                    </NumberField>
+                    <FieldError :errors="errors.limit_speed" />
+                  </Field>
+                  <Field :data-invalid="hasError('traffic_limit') ? true : undefined">
                     <FieldLabel>总流量 (MB)</FieldLabel>
                     <NumberField
                       v-model="form.traffic_limit"
@@ -164,12 +205,16 @@ defineEmits<{
                     >
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
-                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldInput
+                          :aria-invalid="hasError('traffic_limit') || undefined"
+                          :class="numberFieldInputClass"
+                        />
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldError :errors="errors.traffic_limit" />
                   </Field>
-                  <Field>
+                  <Field :data-invalid="hasError('duration') ? true : undefined">
                     <FieldLabel>时长 (秒)</FieldLabel>
                     <NumberField
                       v-model="form.duration"
@@ -178,12 +223,16 @@ defineEmits<{
                     >
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
-                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldInput
+                          :aria-invalid="hasError('duration') || undefined"
+                          :class="numberFieldInputClass"
+                        />
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldError :errors="errors.duration" />
                   </Field>
-                  <Field>
+                  <Field :data-invalid="hasError('count') ? true : undefined">
                     <FieldLabel>下载次数</FieldLabel>
                     <NumberField
                       v-model="form.count"
@@ -192,12 +241,16 @@ defineEmits<{
                     >
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
-                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldInput
+                          :aria-invalid="hasError('count') || undefined"
+                          :class="numberFieldInputClass"
+                        />
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldError :errors="errors.count" />
                   </Field>
-                  <Field>
+                  <Field :data-invalid="hasError('url_switch_interval') ? true : undefined">
                     <FieldLabel>URL 切换时限 (秒)</FieldLabel>
                     <NumberField
                       v-model="form.url_switch_interval"
@@ -206,12 +259,16 @@ defineEmits<{
                     >
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
-                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldInput
+                          :aria-invalid="hasError('url_switch_interval') || undefined"
+                          :class="numberFieldInputClass"
+                        />
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldError :errors="errors.url_switch_interval" />
                   </Field>
-                  <Field>
+                  <Field :data-invalid="hasError('thread_start_delay') ? true : undefined">
                     <FieldLabel>线程启动间隔 (秒)</FieldLabel>
                     <NumberField
                       v-model="form.thread_start_delay"
@@ -220,10 +277,14 @@ defineEmits<{
                     >
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
-                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldInput
+                          :aria-invalid="hasError('thread_start_delay') || undefined"
+                          :class="numberFieldInputClass"
+                        />
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldError :errors="errors.thread_start_delay" />
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -237,7 +298,7 @@ defineEmits<{
               </CardHeader>
               <CardContent class="grid gap-4 py-4">
                 <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                  <Field>
+                  <Field :data-invalid="hasError('interval') ? true : undefined">
                     <FieldLabel>间隔 (分钟)</FieldLabel>
                     <NumberField
                       v-model="form.interval"
@@ -246,14 +307,24 @@ defineEmits<{
                     >
                       <NumberFieldContent class="w-full">
                         <NumberFieldDecrement />
-                        <NumberFieldInput :class="numberFieldInputClass" />
+                        <NumberFieldInput
+                          :aria-invalid="hasError('interval') || undefined"
+                          :class="numberFieldInputClass"
+                        />
                         <NumberFieldIncrement />
                       </NumberFieldContent>
                     </NumberField>
+                    <FieldError :errors="errors.interval" />
                   </Field>
-                  <Field>
+                  <Field :data-invalid="hasError('cron_expr') ? true : undefined">
                     <FieldLabel for="cron-expr">Cron 表达式</FieldLabel>
-                    <Input id="cron-expr" v-model="form.cron_expr" placeholder="*/5 * * * *" />
+                    <Input
+                      id="cron-expr"
+                      v-model="form.cron_expr"
+                      :aria-invalid="hasError('cron_expr') || undefined"
+                      placeholder="*/5 * * * *"
+                    />
+                    <FieldError :errors="errors.cron_expr" />
                   </Field>
                 </div>
 
@@ -276,19 +347,26 @@ defineEmits<{
               </CardHeader>
               <CardContent class="py-4">
                 <FieldGroup>
-                  <Field>
+                  <Field :data-invalid="hasError('user_agent') ? true : undefined">
                     <FieldLabel for="user-agent">User-Agent</FieldLabel>
-                    <Input id="user-agent" v-model="form.user_agent" />
+                    <Input
+                      id="user-agent"
+                      v-model="form.user_agent"
+                      :aria-invalid="hasError('user_agent') || undefined"
+                    />
+                    <FieldError :errors="errors.user_agent" />
                   </Field>
 
-                  <Field>
+                  <Field :data-invalid="hasError('request_headers') ? true : undefined">
                     <FieldLabel for="request-headers">自定义请求头</FieldLabel>
                     <Textarea
                       id="request-headers"
                       v-model="form.request_headers"
+                      :aria-invalid="hasError('request_headers') || undefined"
                       rows="6"
                       placeholder="Referer: https://example.com"
                     />
+                    <FieldError :errors="errors.request_headers" />
                   </Field>
                 </FieldGroup>
               </CardContent>
@@ -354,7 +432,7 @@ defineEmits<{
 
       <DialogFooter class="m-0 px-6 py-4">
         <Button id="reset-config-btn" type="button" variant="outline" :disabled="saving" @click="$emit('reset')">
-          <RotateCcwIcon />
+          <RotateCcwIcon data-icon="inline-start" />
           清空
         </Button>
         <Button
@@ -364,13 +442,13 @@ defineEmits<{
           :disabled="saving || testing || testDisabled"
           @click="$emit('test')"
         >
-          <Spinner v-if="testing" />
+          <Spinner v-if="testing" data-icon="inline-start" />
           <BoltIcon v-else data-icon="inline-start" />
           测试
         </Button>
         <Button id="save-config-btn" type="button" :disabled="saving" @click="$emit('save')">
-          <Spinner v-if="saving" />
-          <SaveIcon v-else />
+          <Spinner v-if="saving" data-icon="inline-start" />
+          <SaveIcon v-else data-icon="inline-start" />
           保存配置
         </Button>
       </DialogFooter>

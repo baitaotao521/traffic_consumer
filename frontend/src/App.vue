@@ -163,13 +163,15 @@ const hasScheduler = computed(() => {
       <ConfigSheet
         v-model:open="dashboard.editorOpen.value"
         :cron-preview="dashboard.cronPreview.value"
+        :errors="dashboard.editorValidationErrors.value"
         :form="dashboard.form"
         :format-date-time="dashboard.formatDateTime"
         :last-run="dashboard.editorLastRun.value"
         :saving="dashboard.isSavingConfig.value"
         :test-disabled="hasActiveDownload"
         :testing="dashboard.isStartingTempTest.value"
-        @reset="dashboard.resetEditor"
+        @close-request="dashboard.requestCloseEditor"
+        @reset="dashboard.requestResetEditor"
         @save="dashboard.runAction(dashboard.saveEditorConfig)"
         @test="dashboard.runAction(dashboard.startEditorTempTest)"
       />

@@ -16,7 +16,7 @@ The maintained Web API is registered under `/api` with Huma:
 GET    /api/dashboard
 GET    /api/activity?after_log=<seq>&after_event=<seq>&include_logs=<bool>&log_sources=<csv>&log_levels=<csv>
 GET    /api/configurations/{name}
-PUT    /api/configurations/{name}
+PUT    /api/configurations/{name}?force=<bool>&mode=create|edit
 DELETE /api/configurations/{name}
 GET    /api/plans/{name}
 POST   /api/cron/preview
@@ -46,9 +46,24 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
   `source` is the backend-owned dimension for frontend log filtering.
 - Command endpoints return `{ dashboard, message }`; config save also returns `item`.
 - Config save/start bodies use `model.Config` / generated `ConfigWritable`. Optional numeric/string fields are omitted when blank. `urls: []` is preserved as an explicit empty URL list.
+- `PUT /api/configurations/{name}` treats the path name as the source/original
+  config and the body `name` / `config_name` as the target. `mode=create`
+  requires `force=true` before an existing target is overwritten. `mode=edit`
+  allows saving the same name, but renaming to an existing different target also
+  requires `force=true`.
+- Save/rename/overwrite must stop only affected runtime items before mutating
+  config data: source name, target name, and the overwritten target when they
+  are active or scheduled. The final response item name is always the saved
+  target name.
+- Web config validation belongs in a shared backend guard before runtime or
+  storage mutation. The Vue editor may pre-validate for feedback, but direct API
+  callers must still get the same 400/409 behavior from the Go API.
 - `DashboardSnapshot.plans` is the configuration list contract. `PlanSummary.total_bytes`, `total_bytes_raw`, and `download_count` describe the current active run only; stopped rows and waiting scheduled rows must return `0 B` / `0` for those fields. The completed result belongs in `PlanSummary.last_run` and `GET /api/plans/{name}.history`, not in row metrics.
 - `StatusPayload.total_bytes` and `download_count` aggregate the same current-run values shown in `DashboardSnapshot.plans`. They are live KPIs, not historical lifetime totals. Historical records stay in `stats.json` and are surfaced through `last_run` / plan detail history.
 - Dashboard numeric form fields must use the component-library number input pattern (`NumberField` / Reka `NumberFieldRoot` + `NumberFieldInput`), not a generic `Input type="number"`. The library's number field owns the numeric model state; form adapters should receive `number | undefined` and must not trim or parse these fields as strings.
+- Dashboard config editor payloads must be projected through the shared
+  frontend editor guard before save, start, or temporary test. Do not rebuild a
+  separate `ConfigWritable` serializer inside a component or composable.
 - Cron preview request is `{ "expression": "*/5 * * * *" }`, not the old `{ "cron_expr": ... }`.
 - Frontend server state belongs in Vue Query. Components must not handwrite API URLs or parse Huma Problem Details directly.
 
@@ -57,6 +72,8 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 | Condition | Status / Error |
 | --- | --- |
 | Invalid or empty cron expression | `400 Bad Request` Problem Details |
+| Invalid Web config name, URL, header, schedule, strategy, or numeric bound | `400 Bad Request` Problem Details |
+| Create or rename would overwrite an existing config without `force=true` | `409 Conflict` Problem Details |
 | Starting runtime while another run blocks it | `409 Conflict` Problem Details |
 | Stopping inactive runtime or scheduler | `409 Conflict` Problem Details |
 | Missing config or plan detail | `404 Not Found` Problem Details |
@@ -66,13 +83,18 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 ### 5. Good/Base/Bad Cases
 
 - Good: a save command writes the config, returns the saved `item`, and returns a fresh dashboard snapshot used to update Vue Query cache.
+- Good: editing config `A` with body target `B` renames the stored entry, stops
+  affected `A`/`B` runtime items only, and returns `item.name = "B"`.
 - Base: dashboard polling reads one aggregate snapshot; activity polling reads logs and events through one cursor pair; config numeric fields stay as numeric model values from the number-field component until request encoding.
 - Base: pausing实时日志 must keep event polling active without advancing `after_log`; changing source/level filters should restart the log view from the buffered log set, not from a swallowed cursor.
-- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, advances the log cursor while `include_logs=false`, or uses `Input type="number"` and then trims/parses the form value by hand.
+- Bad: frontend code calls `/api/runtime/status`, `/api/runtime/logs`, `/api/preview_cron`, locally constructs an old route, bypasses the config editor guard, advances the log cursor while `include_logs=false`, or uses `Input type="number"` and then trims/parses the form value by hand.
 
 ### 6. Tests Required
 
 - HTTP handler tests must assert new response shapes for dashboard, config commands, cron preview, activity cursors, activity log filters, and OpenAPI schema.
+- HTTP/storage/runtime tests must cover config validation, create conflict,
+  rename to unused target, rename conflict, forced overwrite, and source/target
+  runtime stop isolation.
 - Runtime tests must assert that stopped immediate runs clear `PlanSummary.total_bytes_raw` and `download_count` while preserving `last_run`, and that scheduled runtime items remain registered after a trigger but also clear current-run row metrics.
 - Tests must assert old runtime routes are absent from OpenAPI and return `404`.
 - Frontend contract changes require `npm --prefix frontend run api:generate` and `npm --prefix frontend run build`.
@@ -100,6 +122,21 @@ const activity = await apiClient.activity(10, 10, {
 ```
 
 `apiClient` wraps the generated Hey API SDK, and Vue Query owns dashboard/activity polling plus command cache updates.
+
+#### Wrong
+
+```typescript
+await apiClient.saveConfig(form.name, form as ConfigWritable)
+```
+
+#### Correct
+
+```typescript
+const projection = projectConfigForm(form, 'save')
+if (projection.ok) {
+  await apiClient.saveConfig(sourceName, projection.payload, { mode, force })
+}
+```
 
 #### Wrong
 

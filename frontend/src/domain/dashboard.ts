@@ -126,7 +126,7 @@ export function headersToText(headers: ConfigPayload['request_headers']): string
     .join('\n')
 }
 
-export function applyConfigToForm(form: ConfigForm, name = '', config: ConfigPayload = { urls: [] }) {
+export function applyConfigToForm(form: ConfigForm, name = '', config: ConfigPayload = { urls: [], threads: 4 }) {
   form.name = name
   form.urls = Array.isArray(config.urls) ? config.urls.join('\n') : ''
   form.threads = config.threads
@@ -143,64 +143,6 @@ export function applyConfigToForm(form: ConfigForm, name = '', config: ConfigPay
   form.request_headers = headersToText(config.request_headers)
   form.url_switch_interval = config.url_switch_interval
   form.thread_start_delay = config.thread_start_delay
-}
-
-function normalizeHeaders(value: string): Record<string, string> | undefined {
-  const result: Record<string, string> = {}
-  value.split(/\r?\n/).forEach((line) => {
-    const index = line.indexOf(':')
-    if (index <= 0) return
-    const name = line.slice(0, index).trim()
-    const headerValue = line.slice(index + 1).trim()
-    if (name && headerValue) result[name] = headerValue
-  })
-  return Object.keys(result).length ? result : undefined
-}
-
-function assignNumber(
-  target: ConfigPayload,
-  key: 'threads' | 'limit_speed' | 'traffic_limit' | 'duration' | 'count' | 'interval' | 'url_switch_interval' | 'thread_start_delay',
-  value: number | undefined,
-) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    target[key] = value
-  }
-}
-
-export function configFromForm(form: ConfigForm): ConfigPayload {
-  const name = form.name.trim()
-  const config: ConfigPayload = {
-    name,
-    config_name: name,
-    // 显式空 URL 列表表示用户刻意保存空链接，不能省略成后端默认 URL。
-    urls: form.urls
-      .split(/\r?\n/)
-      .map((url) => url.trim())
-      .filter(Boolean),
-    url_strategy: form.url_strategy || 'random',
-    auto_remove_failed_url: form.auto_remove_failed_url,
-    auto_start: form.auto_start,
-  }
-
-  assignNumber(config, 'threads', form.threads)
-  assignNumber(config, 'limit_speed', form.limit_speed)
-  assignNumber(config, 'traffic_limit', form.traffic_limit)
-  assignNumber(config, 'duration', form.duration)
-  assignNumber(config, 'count', form.count)
-  assignNumber(config, 'interval', form.interval)
-  assignNumber(config, 'url_switch_interval', form.url_switch_interval)
-  assignNumber(config, 'thread_start_delay', form.thread_start_delay)
-
-  const cronExpr = form.cron_expr.trim()
-  if (cronExpr) config.cron_expr = cronExpr
-
-  const userAgent = form.user_agent.trim()
-  if (userAgent) config.user_agent = userAgent
-
-  const headers = normalizeHeaders(form.request_headers)
-  if (headers) config.request_headers = headers
-
-  return config
 }
 
 export function configWithName(config: Config | ConfigPayload, name: string): ConfigPayload {

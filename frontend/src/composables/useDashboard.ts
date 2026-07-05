@@ -12,7 +12,6 @@ import {
 } from '@/api/queries'
 import {
   applyConfigToForm,
-  configFromForm,
   configNames,
   configWithName,
   currentConfigName,
@@ -36,9 +35,19 @@ import {
   threadRows as makeThreadRows,
   normalizeFilterSelection,
 } from '@/domain/dashboard'
+import {
+  activeRuntimeNames,
+  firstConfigError,
+  projectConfigForm,
+  projectConfigPayload,
+  scheduledPlans,
+  snapshotConfigForm,
+} from '@/domain/configEditor'
+import type { ConfigEditorMode, ConfigValidationErrors, ConfigValidationMode } from '@/domain/configEditor'
 import type { ConfigForm, ConfigPayload, HistoryRecord, LogEntry, PlanDetailView, PlanSummary } from '@/types'
 
 type AlertVariant = 'default' | 'success' | 'info' | 'warning' | 'destructive'
+type ConfirmPendingKey = 'deleteConfig' | 'stopPlan' | 'saveConfig'
 
 type AlertOptions = {
   title: string
@@ -70,7 +79,12 @@ export function useDashboard() {
   const confirmDialogDescription = ref('')
   const confirmDialogActionLabel = ref('确认')
   const confirmDialogVariant = ref<'default' | 'destructive'>('default')
-  const confirmDialogPendingKey = ref<null | 'deleteConfig' | 'stopPlan'>(null)
+  const confirmDialogPendingKey = ref<null | ConfirmPendingKey>(null)
+  const editorMode = ref<ConfigEditorMode>('create')
+  const editorOriginalName = ref('')
+  const editorInitialSnapshot = ref('')
+  const editorValidationErrors = ref<ConfigValidationErrors>({})
+  const editorValidationMode = ref<ConfigValidationMode>('save')
   const eventStreamReady = ref(false)
   const logStreamReady = ref(false)
   const refreshingDashboard = ref(false)
@@ -95,6 +109,7 @@ export function useDashboard() {
     url_switch_interval: undefined,
     thread_start_delay: undefined,
   })
+  editorInitialSnapshot.value = snapshotConfigForm(form)
 
   const dashboard = computed(() => normalizeDashboard(dashboardQuery.data.value?.dashboard || emptyDashboard))
   const configs = computed(() => configNames(dashboard.value))
@@ -141,8 +156,10 @@ export function useDashboard() {
   const isConfirmingAction = computed(() => {
     if (confirmDialogPendingKey.value === 'deleteConfig') return isDeletingConfig.value
     if (confirmDialogPendingKey.value === 'stopPlan') return isStoppingPlan.value
+    if (confirmDialogPendingKey.value === 'saveConfig') return isSavingConfig.value
     return false
   })
+  const isEditorDirty = computed(() => editorOpen.value && snapshotConfigForm(form) !== editorInitialSnapshot.value)
 
   function mergeAlertLines(...lines: Array<string | undefined>) {
     return lines
@@ -221,12 +238,68 @@ export function useDashboard() {
     return response
   }
 
+  function clearEditorErrors() {
+    editorValidationErrors.value = {}
+  }
+
+  function setEditorErrors(errors: ConfigValidationErrors) {
+    editorValidationErrors.value = errors
+  }
+
+  function validateEditorForm(mode: ConfigValidationMode) {
+    editorValidationMode.value = mode
+    const projection = projectConfigForm(form, mode)
+    setEditorErrors(projection.errors)
+    if (!projection.ok) {
+      pushAlert({ title: firstConfigError(projection.errors) || '配置内容不完整。', variant: 'warning' })
+    }
+    return projection
+  }
+
+  function markEditorClean() {
+    editorInitialSnapshot.value = snapshotConfigForm(form)
+    clearEditorErrors()
+  }
+
+  function setEditorContext(mode: ConfigEditorMode, originalName = '') {
+    editorMode.value = mode
+    editorOriginalName.value = originalName
+    markEditorClean()
+  }
+
+  function closeEditorNow() {
+    editorOpen.value = false
+    clearEditorErrors()
+  }
+
+  function uniqueNames(names: string[]) {
+    return names.filter((name, index, items) => Boolean(name) && items.indexOf(name) === index)
+  }
+
+  function affectedRuntimeNames(targetName: string) {
+    const sourceName = editorMode.value === 'edit' ? editorOriginalName.value : targetName
+    return activeRuntimeNames(plans.value, status.value, uniqueNames([sourceName, targetName]))
+  }
+
+  function saveWouldOverwrite(targetName: string) {
+    const exists = configs.value.includes(targetName)
+    if (editorMode.value === 'create') return exists
+    return targetName !== editorOriginalName.value && exists
+  }
+
+  function saveConfirmationDescription(targetName: string, overwrite: boolean, stoppingNames: string[]) {
+    return [
+      overwrite ? `覆盖配置 "${targetName}"。` : undefined,
+      stoppingNames.length ? `保存前停止：${stoppingNames.join('、')}。` : undefined,
+    ].filter(Boolean).join('\n')
+  }
+
   function openConfirmation(options: {
     title: string
     description: string
     actionLabel: string
     variant?: 'default' | 'destructive'
-    pendingKey?: 'deleteConfig' | 'stopPlan'
+    pendingKey?: ConfirmPendingKey
     action: () => Promise<void>
   }) {
     confirmDialogTitle.value = options.title
@@ -323,10 +396,21 @@ export function useDashboard() {
     return configWithName(selectedConfigDetail.value, selectedConfigName.value)
   }
 
+  function validateSavedConfigForStart(name: string, payload: ConfigPayload): ConfigPayload | null {
+    const projection = projectConfigPayload(name, payload, 'start')
+    if (!projection.ok) {
+      pushAlert({ title: firstConfigError(projection.errors) || '配置内容不完整。', variant: 'warning' })
+      return null
+    }
+    return projection.payload
+  }
+
   async function startSelected() {
     const payload = ensureSelectedConfig()
     if (!payload) return
-    await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(payload))
+    const startPayload = validateSavedConfigForStart(selectedConfigName.value, payload)
+    if (!startPayload) return
+    await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(startPayload))
   }
 
   async function startPlan(plan: PlanSummary) {
@@ -335,10 +419,15 @@ export function useDashboard() {
       return
     }
     const payload = await loadConfigPayload(plan.name)
-    await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(payload))
+    const startPayload = validateSavedConfigForStart(plan.name, payload)
+    if (!startPayload) return
+    await runRuntimeMutation(() => runtimeMutations.startRuntime.mutateAsync(startPayload))
   }
 
   async function startEditorTempTest() {
+    const projection = validateEditorForm('temp-test')
+    if (!projection.ok) return
+
     if (status.value.state === 'running') {
       pushAlert({ title: '已有下载任务正在运行。', variant: 'warning' })
       return
@@ -348,14 +437,16 @@ export function useDashboard() {
       pushAlert({ title: `配置 "${activePlan.name}" 正在运行。`, variant: 'warning' })
       return
     }
-    const payload = configFromForm(form)
-    const name = payload.name?.trim() || ''
-    if (!name) {
-      pushAlert({ title: '请填写配置名称。', variant: 'warning' })
+    const scheduled = scheduledPlans(plans.value)
+    if (scheduled.length > 1) {
+      pushAlert({ title: '存在多个等待调度的计划。', variant: 'warning' })
       return
     }
-    selectedConfigName.value = name
-    await runRuntimeMutation(() => runtimeMutations.startTempTest.mutateAsync(payload))
+    if (scheduled.length === 1 && scheduled[0].name !== projection.targetName) {
+      pushAlert({ title: `等待调度的计划为 "${scheduled[0].name}"。`, variant: 'warning' })
+      return
+    }
+    await runRuntimeMutation(() => runtimeMutations.startTempTest.mutateAsync(projection.payload))
   }
 
   async function stopSelected() {
@@ -369,6 +460,7 @@ export function useDashboard() {
   function openCreateConfig() {
     // 新建配置始终从空白表单开始，避免把当前选中配置误保存成副本。
     resetEditor()
+    setEditorContext('create')
     editorOpen.value = true
   }
 
@@ -376,8 +468,10 @@ export function useDashboard() {
     // 编辑配置沿用当前选中配置；没有配置时仍提供空白表单作为兜底入口。
     if (selectedConfigName.value && selectedConfigDetail.value) {
       applyConfigToForm(form, selectedConfigName.value, selectedConfigDetail.value)
+      setEditorContext('edit', selectedConfigName.value)
     } else {
       applyConfigToForm(form)
+      setEditorContext('create')
     }
     editorOpen.value = true
   }
@@ -385,22 +479,47 @@ export function useDashboard() {
   async function openPlanEditor(plan: PlanSummary) {
     const payload = await loadConfigPayload(plan.name)
     applyConfigToForm(form, plan.name, payload)
+    setEditorContext('edit', plan.name)
     editorOpen.value = true
   }
 
-  async function saveEditorConfig() {
-    const payload = configFromForm(form)
-    const name = payload.name?.trim() || ''
-    if (!name) {
-      pushAlert({ title: '请填写配置名称。', variant: 'warning' })
-      return
-    }
-    const response = await configMutations.saveConfig.mutateAsync({ name, config: payload })
-    const savedName = response.item?.name || name
+  async function submitEditorSave(payload: ConfigPayload, targetName: string, force: boolean) {
+    const sourceName = editorMode.value === 'edit' && editorOriginalName.value ? editorOriginalName.value : targetName
+    const response = await configMutations.saveConfig.mutateAsync({
+      name: sourceName,
+      config: payload,
+      options: {
+        mode: editorMode.value,
+        force,
+      },
+    })
+    const savedName = response.item?.name || targetName
     selectedConfigName.value = savedName
     selectedConfigDetail.value = response.item ? configWithName(response.item.config, savedName) : configWithName(payload, savedName)
+    applyConfigToForm(form, savedName, selectedConfigDetail.value)
+    setEditorContext('edit', savedName)
     pushCommandMessage(response)
-    editorOpen.value = false
+    closeEditorNow()
+  }
+
+  async function saveEditorConfig() {
+    const projection = validateEditorForm('save')
+    if (!projection.ok) return
+
+    const overwrite = saveWouldOverwrite(projection.targetName)
+    const stoppingNames = affectedRuntimeNames(projection.targetName)
+    if (overwrite || stoppingNames.length) {
+      openConfirmation({
+        title: '确认保存配置',
+        description: saveConfirmationDescription(projection.targetName, overwrite, stoppingNames),
+        actionLabel: '保存',
+        pendingKey: 'saveConfig',
+        action: () => submitEditorSave(projection.payload, projection.targetName, overwrite),
+      })
+      return
+    }
+
+    await submitEditorSave(projection.payload, projection.targetName, false)
   }
 
   async function deleteSelectedConfig(target: string) {
@@ -416,9 +535,12 @@ export function useDashboard() {
       pushAlert({ title: '请选择配置。', variant: 'warning' })
       return
     }
+    const stoppingNames = activeRuntimeNames(plans.value, status.value, [target])
     openConfirmation({
       title: '删除配置',
-      description: `配置 "${target}" 会从当前列表中移除。`,
+      description: stoppingNames.length
+        ? `删除前停止：${stoppingNames.join('、')}。`
+        : `配置 "${target}" 会从当前列表中移除。`,
       actionLabel: '删除',
       variant: 'destructive',
       pendingKey: 'deleteConfig',
@@ -450,6 +572,35 @@ export function useDashboard() {
   function resetEditor() {
     applyConfigToForm(form)
     cronPreview.value = []
+    setEditorContext('create')
+  }
+
+  function requestResetEditor() {
+    if (!isEditorDirty.value) {
+      resetEditor()
+      return
+    }
+    openConfirmation({
+      title: '清空配置',
+      description: '未保存的配置修改会被清空。',
+      actionLabel: '清空',
+      variant: 'destructive',
+      action: async () => resetEditor(),
+    })
+  }
+
+  function requestCloseEditor() {
+    if (!isEditorDirty.value) {
+      closeEditorNow()
+      return
+    }
+    openConfirmation({
+      title: '放弃更改',
+      description: '未保存的配置修改会被丢弃。',
+      actionLabel: '关闭',
+      variant: 'destructive',
+      action: async () => closeEditorNow(),
+    })
   }
 
   let cronTimer = 0
@@ -568,6 +719,15 @@ export function useDashboard() {
   )
 
   watch(
+    () => snapshotConfigForm(form),
+    () => {
+      if (!Object.keys(editorValidationErrors.value).length) return
+      const projection = projectConfigForm(form, editorValidationMode.value)
+      setEditorErrors(projection.errors)
+    },
+  )
+
+  watch(
     () => form.cron_expr,
     (value) => {
       window.clearTimeout(cronTimer)
@@ -577,12 +737,25 @@ export function useDashboard() {
           cronPreview.value = []
           return
         }
-        await runAction(async () => {
+        try {
           const response = await cronPreviewMutation.mutateAsync(expression)
           if (form.cron_expr.trim() === expression) {
             cronPreview.value = response.items || []
+            if (editorValidationErrors.value.cron_expr?.length) {
+              const projection = projectConfigForm(form, editorValidationMode.value)
+              setEditorErrors(projection.errors)
+            }
           }
-        })
+        } catch (error) {
+          if (form.cron_expr.trim() === expression) {
+            cronPreview.value = []
+            setEditorErrors({
+              ...editorValidationErrors.value,
+              cron_expr: ['无效的Cron表达式'],
+            })
+          }
+          pushError(error, 'Cron 预览失败')
+        }
       }, 500)
     },
   )
@@ -605,6 +778,7 @@ export function useDashboard() {
     cronPreview,
     currentConfig,
     editorLastRun,
+    editorValidationErrors,
     isConfirmingAction,
     isDashboardLoading,
     isDeletingConfig,
@@ -615,6 +789,7 @@ export function useDashboard() {
     isStoppingPlan,
     isStoppingRuntime,
     isStoppingScheduler,
+    isEditorDirty,
     editorOpen,
     form,
     formatDateTime,
@@ -635,6 +810,8 @@ export function useDashboard() {
     plans,
     refreshDashboard,
     requestDeleteSelectedConfig,
+    requestCloseEditor,
+    requestResetEditor,
     requestStopNamedPlan,
     resetEditor,
     saveEditorConfig,

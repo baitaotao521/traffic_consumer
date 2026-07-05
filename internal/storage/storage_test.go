@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,6 +69,85 @@ func TestLoadConfigAcceptsLegacySingleURLAndHeaderArray(t *testing.T) {
 	}
 	if normalized.RequestHeaders["Referer"] != "https://example.com" {
 		t.Fatalf("legacy headers were not parsed: %+v", normalized.RequestHeaders)
+	}
+}
+
+func TestSaveConfigEntryAsRenamesAndRequiresForceForOverwrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := SaveConfigEntry(path, "one", model.Config{URLs: []string{"https://example.com/one"}, Threads: 1}); err != nil {
+		t.Fatalf("save one: %v", err)
+	}
+	if err := SaveConfigEntry(path, "two", model.Config{URLs: []string{"https://example.com/two"}, Threads: 2}); err != nil {
+		t.Fatalf("save two: %v", err)
+	}
+
+	if _, err := SaveConfigEntryAs(path, SaveConfigEntryOptions{
+		SourceName: "one",
+		TargetName: "two",
+		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 3},
+	}); !errors.Is(err, ErrConfigConflict) {
+		t.Fatalf("expected overwrite conflict, got %v", err)
+	}
+	if cfg, ok, _ := LoadConfigEntry(path, "one"); !ok || cfg.Threads != 1 {
+		t.Fatalf("source should remain after rejected overwrite: ok=%v cfg=%+v", ok, cfg)
+	}
+	if cfg, ok, _ := LoadConfigEntry(path, "two"); !ok || cfg.Threads != 2 {
+		t.Fatalf("target should remain after rejected overwrite: ok=%v cfg=%+v", ok, cfg)
+	}
+
+	result, err := SaveConfigEntryAs(path, SaveConfigEntryOptions{
+		SourceName: "one",
+		TargetName: "two",
+		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 3},
+		Force:      true,
+	})
+	if err != nil {
+		t.Fatalf("force overwrite: %v", err)
+	}
+	if !result.SourceExisted || !result.TargetExisted || !result.Renamed || !result.Overwritten {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if _, ok, _ := LoadConfigEntry(path, "one"); ok {
+		t.Fatalf("source should be removed after force rename overwrite")
+	}
+	if cfg, ok, _ := LoadConfigEntry(path, "two"); !ok || cfg.Threads != 3 {
+		t.Fatalf("target should contain new config: ok=%v cfg=%+v", ok, cfg)
+	}
+}
+
+func TestSaveConfigEntryAsRequiresForceForCreateExistingTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := SaveConfigEntry(path, "demo", model.Config{URLs: []string{"https://example.com/old"}, Threads: 1}); err != nil {
+		t.Fatalf("save demo: %v", err)
+	}
+
+	if _, err := SaveConfigEntryAs(path, SaveConfigEntryOptions{
+		SourceName: "demo",
+		TargetName: "demo",
+		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 2},
+		RequireNew: true,
+	}); !errors.Is(err, ErrConfigConflict) {
+		t.Fatalf("expected create conflict, got %v", err)
+	}
+	if cfg, ok, _ := LoadConfigEntry(path, "demo"); !ok || cfg.Threads != 1 {
+		t.Fatalf("target should remain unchanged after rejected create overwrite: ok=%v cfg=%+v", ok, cfg)
+	}
+
+	result, err := SaveConfigEntryAs(path, SaveConfigEntryOptions{
+		SourceName: "demo",
+		TargetName: "demo",
+		Config:     model.Config{URLs: []string{"https://example.com/new"}, Threads: 2},
+		Force:      true,
+		RequireNew: true,
+	})
+	if err != nil {
+		t.Fatalf("force create overwrite: %v", err)
+	}
+	if !result.SourceExisted || !result.TargetExisted || result.Renamed || !result.Overwritten {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if cfg, ok, _ := LoadConfigEntry(path, "demo"); !ok || cfg.Threads != 2 {
+		t.Fatalf("target should update after forced create overwrite: ok=%v cfg=%+v", ok, cfg)
 	}
 }
 
