@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/baitaotao521/traffic_consumer/internal/config"
 	"github.com/baitaotao521/traffic_consumer/internal/model"
@@ -301,6 +303,182 @@ func TestRuntimeCommandsValidateWebConfigBeforeStart(t *testing.T) {
 	}
 }
 
+func TestStartRuntimeReturnsConflictWhileTempTestActive(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("ok"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("!!"))
+	}))
+	defer func() {
+		releaseDownload()
+		downloadServer.Close()
+	}()
+
+	server := newTestServer(t)
+	t.Cleanup(func() {
+		releaseDownload()
+		server.Manager.StopAll()
+	})
+	payload := model.Config{ConfigName: "demo", URLs: []string{downloadServer.URL}, Threads: 1, URLStrategy: "round_robin"}
+	data, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/commands/start-temp-test", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("temp test status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		return server.Manager.Status().State == model.StateRunning
+	})
+
+	req = httptest.NewRequest(http.MethodPost, "/api/commands/start-runtime", bytes.NewReader(data))
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("start during temp test should return 409, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "临时测试") {
+		t.Fatalf("conflict should mention temp test, body=%s", rec.Body.String())
+	}
+}
+
+func TestStopSchedulerCommandKeepsImmediateRuntime(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("ok"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("!!"))
+	}))
+	defer func() {
+		releaseDownload()
+		downloadServer.Close()
+	}()
+
+	server := newTestServer(t)
+	t.Cleanup(func() {
+		releaseDownload()
+		server.Manager.StopAll()
+	})
+	immediate := model.Config{ConfigName: "run", URLs: []string{downloadServer.URL}, Threads: 1, URLStrategy: "round_robin"}
+	data, _ := json.Marshal(immediate)
+	req := httptest.NewRequest(http.MethodPost, "/api/commands/start-runtime", bytes.NewReader(data))
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start runtime status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	interval := int64(1)
+	scheduled := model.Config{ConfigName: "schedule", URLs: []string{downloadServer.URL}, Threads: 1, Interval: &interval, URLStrategy: "round_robin"}
+	data, _ = json.Marshal(scheduled)
+	req = httptest.NewRequest(http.MethodPost, "/api/commands/start-runtime", bytes.NewReader(data))
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start scheduler status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		plans := plansByName(server.Manager.PlanSummaries())
+		return plans["run"].Running && plans["schedule"].SchedulerRunning
+	})
+
+	req = httptest.NewRequest(http.MethodPost, "/api/commands/stop-scheduler", nil)
+	rec = httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stop scheduler status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var stopped RuntimeCommandResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &stopped); err != nil {
+		t.Fatalf("decode stop scheduler response: %v", err)
+	}
+	plans := plansByName(stopped.Dashboard.Plans)
+	if !plans["run"].Running {
+		t.Fatalf("stop scheduler should keep immediate runtime active: %+v", stopped.Dashboard.Plans)
+	}
+	if plans["schedule"].Running || plans["schedule"].SchedulerRunning {
+		t.Fatalf("stop scheduler should stop scheduled plan: %+v", stopped.Dashboard.Plans)
+	}
+}
+
+func TestStopSchedulerCommandCancelsPausedPlanDuringTempTest(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("x"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write(make([]byte, 1024*1024))
+	}))
+	defer func() {
+		releaseDownload()
+		downloadServer.Close()
+	}()
+
+	server := newTestServer(t)
+	t.Cleanup(func() {
+		releaseDownload()
+		server.Manager.StopAll()
+	})
+	interval := int64(1)
+	trafficLimit := int64(1)
+	cfg := model.Config{ConfigName: "demo", URLs: []string{downloadServer.URL}, Threads: 1, Interval: &interval, TrafficLimit: &trafficLimit, URLStrategy: "round_robin"}
+	if _, err := server.Manager.StartConsumer(cfg); err != nil {
+		t.Fatalf("start scheduler: %v", err)
+	}
+	if _, err := server.Manager.StartTempTest(cfg); err != nil {
+		t.Fatalf("start temp test: %v", err)
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		return server.Manager.Status().State == model.StateRunning
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/commands/stop-scheduler", nil)
+	rec := httptest.NewRecorder()
+	server.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stop scheduler should cancel paused plan, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	releaseDownload()
+	waitUntil(t, 3*time.Second, func() bool {
+		if server.Manager.Status().State != model.StateStopped {
+			return false
+		}
+		plans := plansByName(server.Manager.PlanSummaries())
+		plan := plans["demo"]
+		return !plan.Running && !plan.SchedulerRunning
+	})
+}
+
 func TestPreviewCronReturnsFiveRuns(t *testing.T) {
 	server := newTestServer(t)
 	body := bytes.NewBufferString(`{"expression":"*/5 * * * *"}`)
@@ -491,4 +669,24 @@ func findPlan(plans []model.PlanSummary, name string) (model.PlanSummary, bool) 
 		}
 	}
 	return model.PlanSummary{}, false
+}
+
+func plansByName(plans []model.PlanSummary) map[string]model.PlanSummary {
+	result := make(map[string]model.PlanSummary, len(plans))
+	for _, plan := range plans {
+		result[plan.Name] = plan
+	}
+	return result
+}
+
+func waitUntil(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("condition was not met within %s", timeout)
 }

@@ -61,15 +61,19 @@ func (m *Manager) URLs() []string {
 	return append([]string{}, m.urls...)
 }
 
-// ResetRuntimeState 为下一轮调度执行清理线程分配和 URL 使用统计。
+// ResetRuntimeState 为下一轮调度执行清理线程分配、临时失效状态和 URL 使用统计。
 func (m *Manager) ResetRuntimeState() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.threadStatus = map[int]string{}
 	m.threadMetrics = map[int]model.ThreadMetric{}
+	m.invalid = map[string]bool{}
 	m.usage = map[string]int64{}
 	for _, url := range m.urls {
 		m.usage[url] = 0
+	}
+	for idx := range m.weights {
+		m.weights[idx] = 1
 	}
 }
 
@@ -108,6 +112,13 @@ func (m *Manager) UsageSnapshot() map[string]int64 {
 		snapshot[url] = count
 	}
 	return snapshot
+}
+
+// IsInvalid 判断指定 URL 是否已在本轮被判定失效，供并发重试提前换链。
+func (m *Manager) IsInvalid(url string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.invalid[url]
 }
 
 // RecordSuccess 在一次完整响应流结束后累计 URL 使用次数。

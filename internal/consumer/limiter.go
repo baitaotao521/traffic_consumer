@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -25,24 +26,37 @@ func NewRateLimiter(rateBytesPerSecond int64) *RateLimiter {
 
 // Acquire 在读取分块后阻塞，直到令牌足够。
 func (r *RateLimiter) Acquire(numBytes int) {
+	_ = r.AcquireContext(context.Background(), numBytes)
+}
+
+// AcquireContext 在读取分块后等待令牌，并在任务停止时中断限速等待。
+func (r *RateLimiter) AcquireContext(ctx context.Context, numBytes int) bool {
 	if r == nil || r.rate <= 0 {
-		return
+		return true
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	requestBytes := float64(numBytes)
 	if requestBytes > r.rate {
 		requestBytes = r.rate
 	}
 	for {
+		if ctx.Err() != nil {
+			return false
+		}
 		r.mu.Lock()
 		r.refillLocked()
 		if r.tokens >= requestBytes {
 			r.tokens -= requestBytes
 			r.mu.Unlock()
-			return
+			return true
 		}
 		deficit := requestBytes - r.tokens
 		r.mu.Unlock()
-		time.Sleep(minDuration(time.Duration(deficit/r.rate*float64(time.Second)), 500*time.Millisecond))
+		if !sleepWithContext(ctx, minDuration(time.Duration(deficit/r.rate*float64(time.Second)), 500*time.Millisecond)) {
+			return false
+		}
 	}
 }
 

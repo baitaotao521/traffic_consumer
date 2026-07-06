@@ -240,6 +240,9 @@ func (m *Manager) StartConsumer(cfg model.Config) (model.StatusPayload, error) {
 	defer m.lifecycleMu.Unlock()
 
 	name := storage.NormalizeConfigName(firstNonEmpty(cfg.ConfigName, cfg.Name))
+	if tempName := m.tempName(); tempName != "" {
+		return model.StatusPayload{}, fmt.Errorf("临时测试 \"%s\" 正在运行或清理中，请稍后再启动配置。", tempName)
+	}
 	item, err := m.createItem(name, cfg, false, nil)
 	if err != nil {
 		return model.StatusPayload{}, err
@@ -288,6 +291,9 @@ func (m *Manager) StartTempTest(cfg model.Config) (model.StatusPayload, error) {
 	defer m.lifecycleMu.Unlock()
 
 	name := storage.NormalizeConfigName(firstNonEmpty(cfg.ConfigName, cfg.Name))
+	if tempName := m.tempName(); tempName != "" {
+		return model.StatusPayload{}, fmt.Errorf("临时测试 \"%s\" 正在运行或清理中，请稍后再发起临时测试。", tempName)
+	}
 	snapshot := m.snapshot()
 	if snapshot.hasActiveDownload {
 		return model.StatusPayload{}, errors.New("已有下载任务正在运行，请先停止后再发起临时测试。")
@@ -361,7 +367,7 @@ func (m *Manager) stopAll() bool {
 	m.itemsByName = map[string]*Item{}
 	m.temp = nil
 	m.mu.Unlock()
-	stopped := false
+	stopped := len(items) > 0
 	for _, item := range items {
 		if stopItem(item) {
 			stopped = true
@@ -375,6 +381,54 @@ func (m *Manager) stopAll() bool {
 			m.addRuntimeLog("", "info", fmt.Sprintf("已停止运行任务：%s。", strings.Join(stoppedRuns, ", ")))
 		}
 		m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "secondary", Message: "流量消耗器已停止。"})
+	}
+	return stopped
+}
+
+// StopSchedulers 停止所有等待调度或正在执行的调度计划，保留普通下载和临时测试。
+func (m *Manager) StopSchedulers() bool {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	items := m.items()
+	targets := []*Item{}
+	names := []string{}
+	for _, item := range items {
+		if item == nil || item.Temp || item.Cron == nil {
+			continue
+		}
+		targets = append(targets, item)
+		names = append(names, item.Name)
+	}
+	stopped := false
+	m.mu.Lock()
+	for _, item := range targets {
+		if current := m.itemsByName[item.Name]; current == item {
+			delete(m.itemsByName, item.Name)
+		}
+	}
+	for _, item := range m.temp {
+		if item == nil || item.Resume == nil {
+			continue
+		}
+		// 临时测试暂停的计划只保存在 Resume 中；停止调度时清掉恢复目标，但保留当前临时测试继续运行。
+		names = append(names, item.Resume.Name)
+		item.Resume = nil
+		stopped = true
+	}
+	m.mu.Unlock()
+
+	if len(targets) == 0 && !stopped {
+		return false
+	}
+	for _, item := range targets {
+		if stopItem(item) {
+			stopped = true
+		}
+	}
+	if stopped {
+		m.addSchedulerLog("", "info", fmt.Sprintf("已停止调度计划：%s。", strings.Join(uniqueNames(names), ", ")))
+		m.AddEvent(model.Event{Type: "status_update", Title: "状态更新：", Variant: "secondary", Message: "调度器已停止。"})
 	}
 	return stopped
 }
@@ -462,8 +516,7 @@ func (m *Manager) Status() model.StatusPayload {
 	urlUsageStats := []model.URLUsageStat{}
 	if len(snapshot.active) > 0 {
 		threadStatus, threadMetrics = buildThreadSnapshots(snapshot.active)
-		item := snapshot.active[0]
-		urlUsageStats = buildURLUsageStats(item.Consumer.URLMgr.URLs(), item.Consumer.URLMgr.UsageSnapshot())
+		urlUsageStats = buildActiveURLUsageStats(snapshot.active)
 	}
 	configLabel := strings.Join(activeConfigs, ", ")
 	if configLabel == "" {
@@ -502,6 +555,21 @@ func buildThreadSnapshots(items []*Item) (map[int]string, map[int]model.ThreadMe
 		offset += item.Config.Threads
 	}
 	return status, metrics
+}
+
+func buildActiveURLUsageStats(items []*Item) []model.URLUsageStat {
+	urls := []string{}
+	usage := map[string]int64{}
+	for _, item := range items {
+		if item == nil || !item.Consumer.IsActive() {
+			continue
+		}
+		urls = append(urls, item.Consumer.URLMgr.URLs()...)
+		for url, count := range item.Consumer.URLMgr.UsageSnapshot() {
+			usage[url] += count
+		}
+	}
+	return buildURLUsageStats(urls, usage)
 }
 
 // SchedulerStatus 返回调度摘要，运行计划列表统一由 dashboard.plans 承载。
@@ -817,6 +885,17 @@ func (m *Manager) items() []*Item {
 		items = append(items, item)
 	}
 	return items
+}
+
+func (m *Manager) tempName() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, item := range m.temp {
+		if item != nil {
+			return item.Name
+		}
+	}
+	return ""
 }
 
 func (m *Manager) snapshot() runtimeSnapshot {

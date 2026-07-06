@@ -136,6 +136,243 @@ func TestStopRuntimeConfigKeepsOtherAutoStartPlans(t *testing.T) {
 	}
 }
 
+func TestStopAllClearsPendingTempCleanup(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(1)
+	cfg := model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{"https://example.com/file"},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}
+	item, err := manager.createItem("demo", cfg, true, &ResumeTarget{Name: "demo", Config: cfg})
+	if err != nil {
+		t.Fatalf("create temp item: %v", err)
+	}
+	manager.mu.Lock()
+	// 已结束但尚未清理的临时测试仍会携带待恢复计划，停止全部运行态必须把它当作有效停止目标。
+	manager.temp = append(manager.temp, item)
+	manager.mu.Unlock()
+
+	if !manager.StopAll() {
+		t.Fatalf("stop all should report that pending temp cleanup was cleared")
+	}
+	if len(manager.items()) != 0 {
+		t.Fatalf("stop all should remove pending temp cleanup items: %+v", manager.items())
+	}
+}
+
+func TestStopSchedulersKeepsImmediateDownloads(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("ok"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("!!"))
+	}))
+	defer func() {
+		releaseDownload()
+		server.Close()
+	}()
+
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() {
+		releaseDownload()
+		manager.StopAll()
+	})
+
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "run",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start immediate run: %v", err)
+	}
+	interval := int64(1)
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "schedule",
+		URLs:        []string{},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start scheduled run: %v", err)
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		plans := plansByName(manager.PlanSummaries())
+		return plans["run"].Running && plans["schedule"].SchedulerRunning
+	})
+
+	if !manager.StopSchedulers() {
+		t.Fatalf("expected scheduler stop")
+	}
+	plans := plansByName(manager.PlanSummaries())
+	if !plans["run"].Running {
+		t.Fatalf("scheduler stop should keep immediate run active: %+v", plans)
+	}
+	if plans["schedule"].SchedulerRunning || plans["schedule"].Running {
+		t.Fatalf("scheduler stop should stop scheduled plan: %+v", plans)
+	}
+}
+
+func TestStopSchedulersCancelsActiveScheduledRun(t *testing.T) {
+	started := make(chan struct{})
+	released := make(chan struct{})
+	var startedOnce sync.Once
+	var releasedOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		startedOnce.Do(func() {
+			close(started)
+		})
+		<-r.Context().Done()
+		releasedOnce.Do(func() {
+			close(released)
+		})
+	}))
+	defer server.Close()
+
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(60)
+	if _, err := manager.StartConsumer(model.Config{
+		ConfigName:  "schedule",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}); err != nil {
+		t.Fatalf("start scheduled run: %v", err)
+	}
+	manager.mu.RLock()
+	item := manager.itemsByName["schedule"]
+	manager.mu.RUnlock()
+	if item == nil || item.Cron == nil {
+		t.Fatalf("expected a scheduled runtime item: %+v", item)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		manager.runScheduledItem(item, context.Background())
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("scheduled run did not start its blocked request")
+	}
+	if !manager.StopSchedulers() {
+		t.Fatalf("expected scheduler stop to cancel the active scheduled run")
+	}
+	select {
+	case <-released:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("blocked scheduled request should be canceled by scheduler stop")
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("scheduled run should finish after scheduler stop")
+	}
+
+	history := item.Consumer.History()
+	if len(history) != 1 || history[0].Result != "已停止" {
+		t.Fatalf("stopped scheduled run should record stopped history: %+v", history)
+	}
+	plans := plansByName(manager.PlanSummaries())
+	if plan := plans["schedule"]; plan.Running || plan.SchedulerRunning {
+		t.Fatalf("active scheduled run should be removed after scheduler stop: %+v", plan)
+	}
+}
+
+func TestStopSchedulersCancelsPausedPlanDuringTempTest(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", 1024*1024+1))
+		_, _ = w.Write([]byte("x"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write(make([]byte, 1024*1024))
+	}))
+	defer func() {
+		releaseDownload()
+		server.Close()
+	}()
+
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() {
+		releaseDownload()
+		manager.StopAll()
+	})
+
+	interval := int64(1)
+	trafficLimit := int64(1)
+	cfg := model.Config{
+		ConfigName:   "demo",
+		URLs:         []string{server.URL},
+		Threads:      1,
+		Interval:     &interval,
+		TrafficLimit: &trafficLimit,
+		URLStrategy:  "round_robin",
+	}
+	if _, err := manager.StartConsumer(cfg); err != nil {
+		t.Fatalf("start scheduled consumer: %v", err)
+	}
+	if _, err := manager.StartTempTest(cfg); err != nil {
+		t.Fatalf("start temp test: %v", err)
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		return manager.snapshot().hasActiveDownload
+	})
+
+	if !manager.StopSchedulers() {
+		t.Fatalf("expected paused scheduler stop")
+	}
+	manager.mu.RLock()
+	if len(manager.temp) != 1 || manager.temp[0].Resume != nil {
+		manager.mu.RUnlock()
+		t.Fatalf("stop scheduler should keep temp test but cancel paused plan: %+v", manager.temp)
+	}
+	manager.mu.RUnlock()
+
+	releaseDownload()
+	waitUntil(t, 3*time.Second, func() bool {
+		manager.mu.RLock()
+		defer manager.mu.RUnlock()
+		return len(manager.temp) == 0
+	})
+	plans := plansByName(manager.PlanSummaries())
+	if plan, ok := plans["demo"]; ok && (plan.SchedulerRunning || plan.Running) {
+		t.Fatalf("stopped paused scheduler should not be restored after temp test: %+v", plan)
+	}
+}
+
 func TestStartConsumerAllowsMultipleConfigRuns(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -235,6 +472,21 @@ func TestStatusAggregatesThreadSnapshotsForMultipleActiveConfigs(t *testing.T) {
 	}, func() string {
 		return fmt.Sprintf("status=%+v", status)
 	})
+
+	for _, item := range manager.items() {
+		item.Consumer.URLMgr.RecordSuccess(item.Config.URLs[0])
+	}
+	status = manager.Status()
+	usageByURL := map[string]model.URLUsageStat{}
+	for _, stat := range status.URLUsageStats {
+		usageByURL[stat.URL] = stat
+	}
+	if usageByURL[serverOne.URL].Count != 1 || usageByURL[serverTwo.URL].Count != 1 {
+		t.Fatalf("URL usage should include all active configs: %+v", status.URLUsageStats)
+	}
+	if usageByURL[serverOne.URL].Percentage != 50 || usageByURL[serverTwo.URL].Percentage != 50 {
+		t.Fatalf("URL usage percentages should be calculated across active configs: %+v", status.URLUsageStats)
+	}
 }
 
 func TestStatusIncludesThreadResponseTimeAndProgress(t *testing.T) {
@@ -654,6 +906,134 @@ func TestStartTempTestRecordsResultForSavedConfig(t *testing.T) {
 	})
 }
 
+func TestStartConsumerRejectsWhileTempTestActive(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("ok"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("!!"))
+	}))
+	defer func() {
+		releaseDownload()
+		server.Close()
+	}()
+
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() {
+		releaseDownload()
+		manager.StopAll()
+	})
+
+	cfg := model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	}
+	if _, err := manager.StartTempTest(cfg); err != nil {
+		t.Fatalf("start temp test: %v", err)
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		return manager.snapshot().hasActiveDownload
+	})
+
+	_, err := manager.StartConsumer(model.Config{
+		ConfigName:  "other",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	})
+	if err == nil || !strings.Contains(err.Error(), "临时测试") {
+		t.Fatalf("normal start should be blocked while temp test is active, got %v", err)
+	}
+	if len(manager.items()) != 1 {
+		t.Fatalf("blocked start should not create another runtime item: %+v", manager.items())
+	}
+}
+
+func TestStartConsumerRejectsWhileTempTestCleanupPending(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(1)
+	cfg := model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{"https://example.com/file"},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}
+	item, err := manager.createItem("demo", cfg, true, &ResumeTarget{Name: "demo", Config: cfg})
+	if err != nil {
+		t.Fatalf("create temp item: %v", err)
+	}
+	manager.mu.Lock()
+	// 临时测试自然结束后到清理协程移除 temp 之前，恢复计划仍然挂在 Resume 上；此时普通启动不能抢占同名配置。
+	manager.temp = append(manager.temp, item)
+	manager.mu.Unlock()
+
+	_, err = manager.StartConsumer(model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{"https://example.com/other"},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	})
+	if err == nil || !strings.Contains(err.Error(), "临时测试") {
+		t.Fatalf("pending temp cleanup should block normal start, got %v", err)
+	}
+	if len(manager.items()) != 1 {
+		t.Fatalf("blocked start should leave only the pending temp item: %+v", manager.items())
+	}
+}
+
+func TestStartTempTestRejectsWhileTempTestCleanupPending(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() { manager.StopAll() })
+
+	interval := int64(1)
+	cfg := model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{"https://example.com/file"},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}
+	item, err := manager.createItem("demo", cfg, true, &ResumeTarget{Name: "demo", Config: cfg})
+	if err != nil {
+		t.Fatalf("create temp item: %v", err)
+	}
+	manager.mu.Lock()
+	// 上一次临时测试结束但尚未清理时，新的临时测试也不能插队，否则旧 Resume 可能恢复到新测试旁边。
+	manager.temp = append(manager.temp, item)
+	manager.mu.Unlock()
+
+	_, err = manager.StartTempTest(model.Config{
+		ConfigName:  "other",
+		URLs:        []string{"https://example.com/other"},
+		Threads:     1,
+		URLStrategy: "round_robin",
+	})
+	if err == nil || !strings.Contains(err.Error(), "临时测试") {
+		t.Fatalf("pending temp cleanup should block another temp test, got %v", err)
+	}
+	if len(manager.items()) != 1 {
+		t.Fatalf("blocked temp test should leave only the pending temp item: %+v", manager.items())
+	}
+}
+
 func TestStartTempTestRejectsMultipleScheduledPlans(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	manager := New(paths)
@@ -951,6 +1331,65 @@ func TestTempTestRestoresPausedScheduledPlan(t *testing.T) {
 		}
 		return false
 	})
+}
+
+func TestStoppingTempTestDoesNotRestorePausedScheduledPlan(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseDownload := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("ok"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		_, _ = w.Write([]byte("!!"))
+	}))
+	defer func() {
+		releaseDownload()
+		server.Close()
+	}()
+
+	paths := runtimeTestPaths(t)
+	manager := New(paths)
+	t.Cleanup(func() {
+		releaseDownload()
+		manager.StopAll()
+	})
+
+	interval := int64(1)
+	cfg := model.Config{
+		ConfigName:  "demo",
+		URLs:        []string{server.URL},
+		Threads:     1,
+		Interval:    &interval,
+		URLStrategy: "round_robin",
+	}
+	if _, err := manager.StartConsumer(cfg); err != nil {
+		t.Fatalf("start scheduled consumer: %v", err)
+	}
+	if _, err := manager.StartTempTest(cfg); err != nil {
+		t.Fatalf("start temp test: %v", err)
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		return manager.snapshot().hasActiveDownload
+	})
+
+	if !manager.StopRuntimeConfig("demo") {
+		t.Fatalf("expected temp test stop")
+	}
+
+	// 用户显式停止临时测试时，原计划视为同时被取消，不能在清理协程里偷偷恢复。
+	time.Sleep(100 * time.Millisecond)
+	plans := plansByName(manager.PlanSummaries())
+	if plan, ok := plans["demo"]; ok && (plan.SchedulerRunning || plan.Running) {
+		t.Fatalf("stopped temp test should not restore paused scheduler: %+v", plan)
+	}
 }
 
 func runtimeTestPaths(t *testing.T) config.Paths {

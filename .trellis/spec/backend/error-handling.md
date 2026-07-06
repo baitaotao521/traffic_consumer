@@ -104,6 +104,28 @@ Examples:
 Scheduler work must be stopped cleanly. Existing CLI scheduler code calls
 `scheduler.Stop()` and waits briefly for the stop context before returning.
 
+Scheduled Web runs call `Consumer.RunOnce` synchronously from cron jobs. A
+scheduled run must still register a per-run cancel function inside the consumer
+so `StopRuntimeConfig` and `StopAll` can interrupt blocked HTTP requests,
+thread-start delays, retry backoff, and limiter waits. Do not rely on the
+caller passing a cancelable context; Web cron jobs may be triggered with
+`context.Background()`.
+
+Temporary tests are exclusive runtime probes. While a temp test is active or
+still waiting for cleanup, normal runtime starts and new temp tests must return
+a conflict instead of creating another item; otherwise the temp item can race
+with the restored scheduled plan and corrupt the user's expected runtime state.
+
+Global stop commands must preserve their visible command scope. The Web
+`stop-runtime` command is the "stop all" operation used by the dashboard, but
+`stop-scheduler` must stop scheduled runtime items (`Cron != nil`) and paused
+plans stored as temp-test resume targets, while leaving ordinary immediate
+downloads or temp tests running. If a scheduled item is currently executing a
+download round, stopping the scheduler must cancel that active round and record
+the run as `已停止`.
+Pending temp-test cleanup is still runtime state: `stop-runtime` must clear it
+and report success because it cancels a possible scheduled-plan restore.
+
 ---
 
 ## Consumer Errors
@@ -120,6 +142,16 @@ The download loop treats network failures as recoverable until retry exhaustion:
 
 Do not hide failed downloads by incrementing success counters. A URL is counted
 only after a complete response stream succeeds.
+
+Transient URL invalidation is per run. `URLMgr.ResetRuntimeState` must clear
+temporary invalid flags and weights before the next scheduled round, while
+`AutoRemoveFailedURL` remains persistent because it removes the URL from the
+runtime list and saved config. Retry loops should check whether another thread
+already marked the same URL invalid before starting or continuing backoff work.
+
+Business stop paths should cancel the active run context, not only flip an
+`active` boolean. User stop, duration limit, traffic limit, count limit, no
+available URL, and all-URL-invalid stops all need to unblock peer goroutines.
 
 ---
 
@@ -143,6 +175,10 @@ helpers only. Do not use it in runtime code.
 - Returning plain text from API handlers instead of the `{"error","message"}`
   JSON shape.
 - Treating scheduler conflicts as `500` instead of `409`.
+- Checking only `Consumer.IsActive()` or `Cron != nil` when deciding whether
+  runtime state exists. Temporary-test cleanup items can be inactive and have no
+  cron while still carrying a `ResumeTarget` that would restore a scheduled
+  plan.
 - Logging an error without returning or surfacing it to the API/CLI caller.
 - Adding Python-side exception handling for new behavior. Python is deprecated;
   fix or preserve behavior in Go.

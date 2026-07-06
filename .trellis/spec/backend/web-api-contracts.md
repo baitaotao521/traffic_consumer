@@ -102,6 +102,10 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
   `AlertDialogAction` / `DialogClose`, because those primitives close before the
   save/stop/delete request resolves and can leave pending/retry state out of
   sync. Keep the confirm action available until success or explicit cancel.
+- `POST /api/commands/stop-scheduler` stops scheduled plans only, including
+  paused plans waiting behind a temporary test. It must not stop ordinary
+  immediate downloads or temporary tests; the dashboard's stop-all command
+  remains `POST /api/commands/stop-runtime`.
 - Global command confirmations must render after primary dashboard dialogs in
   `App.vue`. Dialog and alert-dialog overlays share the same component-library
   z-index, so source order is the project-owned stacking contract.
@@ -172,6 +176,9 @@ This runs `go run ../cmd/openapi > src/api/openapi.json` and regenerates `fronte
 - Frontend command-confirmation changes must verify the dialog stays pending
   while the mutation is in flight, closes on success, and leaves a retry/cancel
   path on failure.
+- Stop-scheduler command tests must assert ordinary waiting scheduled plans,
+  currently executing scheduled runs, and paused plans behind temporary tests are
+  stopped without stopping immediate downloads or the temporary test itself.
 - Go API changes require `gofmt -w .` and `go test ./...`.
 - Page-shell changes should assert `/` loads `/static/app/assets/app.js`, not retired static JS.
 

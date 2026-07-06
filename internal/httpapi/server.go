@@ -407,7 +407,7 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 		Tags:        []string{"Commands"},
 		Errors:      []int{http.StatusConflict, http.StatusInternalServerError},
 	}, func(ctx context.Context, input *struct{}) (*runtimeCommandOutput, error) {
-		if !s.Manager.StopAll() {
+		if !s.Manager.StopSchedulers() {
 			return nil, huma.Error409Conflict("调度器未在运行。")
 		}
 		return s.runtimeCommand("调度器已停止。")

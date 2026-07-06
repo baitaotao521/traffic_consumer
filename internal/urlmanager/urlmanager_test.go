@@ -39,6 +39,26 @@ func TestMarkInvalidTreatsDuplicateURLAsFullyInvalid(t *testing.T) {
 	}
 }
 
+func TestResetRuntimeStateClearsTransientInvalidURL(t *testing.T) {
+	manager := New([]string{"https://example.com/a"}, "round_robin", 5, nil)
+
+	if allInvalid := manager.MarkInvalid("https://example.com/a", "boom"); !allInvalid {
+		t.Fatalf("single URL should become invalid for the current run")
+	}
+	if !manager.IsInvalid("https://example.com/a") {
+		t.Fatalf("URL should be invalid before runtime reset")
+	}
+
+	manager.ResetRuntimeState()
+
+	if manager.IsInvalid("https://example.com/a") {
+		t.Fatalf("transient invalid URL should be retried in the next scheduled run")
+	}
+	if got := manager.GetURLForThread(1); got != "https://example.com/a" {
+		t.Fatalf("reset URL should be selectable again, got %q", got)
+	}
+}
+
 func TestRemoveURLUpdatesThreadStatus(t *testing.T) {
 	manager := New([]string{"a", "b"}, "round_robin", 5, nil)
 	if got := manager.GetURLForThread(1); got != "a" {

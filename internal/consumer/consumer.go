@@ -46,12 +46,15 @@ type Consumer struct {
 	totalBytes      int64
 	downloadCount   int64
 	cancel          context.CancelFunc
+	cancelSeq       int64
 	done            chan struct{}
 	rateLimiter     *RateLimiter
 	trafficNotified bool
 	countNotified   bool
-	retryLogKeys    map[string]bool
-	history         []model.HistoryRecord
+	// finishReason 保存本轮任务的业务结束原因，写入历史记录供调度复盘使用。
+	finishReason string
+	retryLogKeys map[string]bool
+	history      []model.HistoryRecord
 }
 
 const (
@@ -115,45 +118,63 @@ func (c *Consumer) RunOnce(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	runCtx, cancel := context.WithCancel(ctx)
+	cancelSeq := c.setRunCancel(cancel)
+	defer c.clearRunCancel(cancelSeq, cancel)
+	if runCtx.Err() != nil {
+		return
+	}
+
 	c.prepareRun()
 	defer c.finishRun()
 
 	var wg sync.WaitGroup
 	for i := 1; i <= c.Config.Threads; i++ {
-		if !c.IsActive() || ctx.Err() != nil {
+		if !c.IsActive() || runCtx.Err() != nil {
 			break
 		}
 		threadID := i
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.downloadLoop(ctx, threadID)
+			c.downloadLoop(runCtx, threadID)
 		}()
 		// 顺序发起线程可减少所有连接被上游负载均衡打到同一路的概率。
 		if c.Config.ThreadStartDelay != nil && *c.Config.ThreadStartDelay > 0 && i < c.Config.Threads {
-			if !sleepWithContext(ctx, time.Duration(*c.Config.ThreadStartDelay*float64(time.Second))) {
+			if !sleepWithContext(runCtx, time.Duration(*c.Config.ThreadStartDelay*float64(time.Second))) {
 				break
 			}
 		}
 	}
 
 	if c.Config.Duration != nil && *c.Config.Duration > 0 {
-		sleepWithContext(ctx, time.Duration(*c.Config.Duration)*time.Second)
-		c.Stop()
+		if sleepWithContext(runCtx, time.Duration(*c.Config.Duration)*time.Second) {
+			c.stopWithReason("达到时长限制")
+		}
 	} else {
-		for c.IsActive() && ctx.Err() == nil {
+		for c.IsActive() && runCtx.Err() == nil {
 			time.Sleep(100 * time.Millisecond)
 		}
+	}
+	if runCtx.Err() != nil && c.IsActive() {
+		c.stopWithReason("已停止")
 	}
 	wg.Wait()
 }
 
 // Stop 请求停止下载任务。
 func (c *Consumer) Stop() {
+	c.stopWithReason("已停止")
+}
+
+func (c *Consumer) stopWithReason(reason string) {
 	c.mu.Lock()
 	cancel := c.cancel
 	c.active = false
-	c.status = "已停止"
+	if c.finishReason == "" || c.finishReason == "成功" {
+		c.finishReason = reason
+	}
+	c.status = reason
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -197,6 +218,7 @@ func (c *Consumer) prepareRun() {
 	c.downloadCount = 0
 	c.trafficNotified = false
 	c.countNotified = false
+	c.finishReason = "成功"
 	c.retryLogKeys = map[string]bool{}
 	c.mu.Unlock()
 	c.URLMgr.ResetRuntimeState()
@@ -209,13 +231,14 @@ func (c *Consumer) finishRun() {
 	startTime := c.startTime
 	totalBytes := c.totalBytes
 	downloadCount := c.downloadCount
+	result := firstNonEmpty(c.finishReason, "成功")
 	c.status = "已停止"
 	c.mu.Unlock()
 
 	if !startTime.IsZero() {
 		historyRecord := model.HistoryRecord{
 			Timestamp:      time.Now().Format(time.RFC3339),
-			Result:         "成功",
+			Result:         result,
 			BytesConsumed:  stats.FormatBytes(float64(totalBytes)),
 			DownloadCount:  downloadCount,
 			Bytes:          totalBytes,
@@ -240,7 +263,7 @@ func (c *Consumer) finishRun() {
 			TotalBytes:     totalBytes,
 			DownloadCount:  downloadCount,
 			ElapsedSeconds: int64(time.Since(startTime).Seconds()),
-			Result:         "成功",
+			Result:         result,
 			History:        historySnapshot,
 		}
 		if err := c.Stats.SaveRun(run); err != nil {
@@ -263,6 +286,7 @@ func (c *Consumer) finishRun() {
 	c.totalBytes = 0
 	c.downloadCount = 0
 	c.startTime = time.Time{}
+	c.finishReason = ""
 	c.mu.Unlock()
 	c.log("info", "任务已停止。", "#0dcaf0")
 }
@@ -284,7 +308,7 @@ func (c *Consumer) downloadLoop(ctx context.Context, threadID int) {
 		if currentURL == "" {
 			c.log("error", "未找到可用的下载链接，任务将停止。", "#dc3545")
 			c.URLMgr.SetThreadStatus(threadID, "无可用链接")
-			c.Stop()
+			c.stopWithReason("无可用链接")
 			return
 		}
 
@@ -314,6 +338,9 @@ func (c *Consumer) downloadLoop(ctx context.Context, threadID int) {
 func (c *Consumer) downloadWithRetries(ctx context.Context, client *http.Client, url string, threadID int) bool {
 	backoff := retryBackoff
 	for attempt := 1; attempt <= maxRetries && c.IsActive() && ctx.Err() == nil; attempt++ {
+		if c.URLMgr.IsInvalid(url) {
+			return false
+		}
 		completed, err := c.streamDownload(ctx, client, url, threadID)
 		if err == nil {
 			return completed
@@ -329,11 +356,14 @@ func (c *Consumer) downloadWithRetries(ctx context.Context, client *http.Client,
 				c.handleAutoRemoveFailedURL(url)
 			}
 			if allInvalid {
-				c.Stop()
+				c.stopWithReason("全部链接失效")
 			}
 			return false
 		}
 		if !sleepWithContext(ctx, backoff) {
+			return false
+		}
+		if c.URLMgr.IsInvalid(url) {
 			return false
 		}
 		backoff *= 2
@@ -379,7 +409,9 @@ func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url 
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if c.rateLimiter != nil {
-				c.rateLimiter.Acquire(n)
+				if !c.rateLimiter.AcquireContext(ctx, n) {
+					return false, nil
+				}
 			}
 			c.URLMgr.RecordThreadProgress(threadID, int64(n))
 			c.addBytes(int64(n))
@@ -420,9 +452,8 @@ func (c *Consumer) checkTrafficLimit() bool {
 		return false
 	}
 	c.trafficNotified = true
-	c.active = false
-	c.status = "等待下次执行"
 	c.mu.Unlock()
+	c.stopWithReason("达到流量限制")
 	c.log("warning", fmt.Sprintf("已达到流量限制 %d MB", *c.Config.TrafficLimit), "#ffc107")
 	return true
 }
@@ -435,10 +466,27 @@ func (c *Consumer) stopDueToCount() {
 	}
 	count := *c.Config.Count
 	c.countNotified = true
-	c.active = false
-	c.status = "等待下次执行"
 	c.mu.Unlock()
+	c.stopWithReason("达到下载次数限制")
 	c.log("warning", fmt.Sprintf("已达到下载次数限制 %d", count), "#ffc107")
+}
+
+func (c *Consumer) setRunCancel(cancel context.CancelFunc) int64 {
+	c.mu.Lock()
+	c.cancelSeq++
+	seq := c.cancelSeq
+	c.cancel = cancel
+	c.mu.Unlock()
+	return seq
+}
+
+func (c *Consumer) clearRunCancel(seq int64, cancel context.CancelFunc) {
+	cancel()
+	c.mu.Lock()
+	if c.cancelSeq == seq {
+		c.cancel = nil
+	}
+	c.mu.Unlock()
 }
 
 func (c *Consumer) shouldSwitchURL(startedAt time.Time) bool {
@@ -508,6 +556,15 @@ func sleepWithContext(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func closedDone() chan struct{} {

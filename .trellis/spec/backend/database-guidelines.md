@@ -99,6 +99,10 @@ Keep these rules intact:
   has one clear source of truth.
 - `stats.json` keeps string times in `2006-01-02 15:04:05` form for historical
   runs, while Web event timestamps use RFC3339.
+- `StatsRun.result` and inline `HistoryRecord.result` store the business finish
+  reason for the run. Natural completion may use `成功`, but user stop, traffic
+  limit, count limit, duration limit, no available URL, and all-URL-invalid
+  stops must not be collapsed back to `成功`.
 
 ---
 
