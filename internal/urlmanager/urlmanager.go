@@ -367,14 +367,19 @@ func (m *Manager) weightedRandomLocked(candidates []string) string {
 	}
 
 	totalWeight := 0.0
+	weightsByURL := make(map[string]float64, len(m.urls))
+	for idx, url := range m.urls {
+		if _, exists := weightsByURL[url]; exists || idx >= len(m.weights) {
+			continue
+		}
+		// 重复 URL 共享同一个失效和使用计数，候选权重也沿用第一条配置项，保持旧展示语义。
+		weightsByURL[url] = m.weights[idx]
+	}
 	candidateWeights := make([]float64, len(candidates))
 	for idx, url := range candidates {
 		weight := 1.0
-		for sourceIdx, sourceURL := range m.urls {
-			if sourceURL == url && sourceIdx < len(m.weights) {
-				weight = m.weights[sourceIdx]
-				break
-			}
+		if value, ok := weightsByURL[url]; ok {
+			weight = value
 		}
 		candidateWeights[idx] = weight
 		totalWeight += weight

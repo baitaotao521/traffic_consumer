@@ -414,8 +414,7 @@ func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url 
 				}
 			}
 			c.URLMgr.RecordThreadProgress(threadID, int64(n))
-			c.addBytes(int64(n))
-			if c.checkTrafficLimit() {
+			if c.addBytesAndCheckTrafficLimit(int64(n)) {
 				return false, nil
 			}
 			if c.shouldSwitchURL(startedAt) {
@@ -435,18 +434,24 @@ func (c *Consumer) streamDownload(ctx context.Context, client *http.Client, url 
 	return false, nil
 }
 
-func (c *Consumer) addBytes(n int64) {
-	c.mu.Lock()
-	c.totalBytes += n
-	c.mu.Unlock()
+func (c *Consumer) checkTrafficLimit() bool {
+	return c.addBytesAndCheckTrafficLimit(0)
 }
 
-func (c *Consumer) checkTrafficLimit() bool {
+func (c *Consumer) addBytesAndCheckTrafficLimit(n int64) bool {
 	if c.Config.TrafficLimit == nil {
+		if n > 0 {
+			c.mu.Lock()
+			c.totalBytes += n
+			c.mu.Unlock()
+		}
 		return false
 	}
 	limitBytes := *c.Config.TrafficLimit * 1024 * 1024
 	c.mu.Lock()
+	if n > 0 {
+		c.totalBytes += n
+	}
 	if c.trafficNotified || c.totalBytes < limitBytes {
 		c.mu.Unlock()
 		return false

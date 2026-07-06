@@ -56,6 +56,87 @@ runs[runID] = run
 return storage.WriteJSON(s.Path, runs)
 ```
 
+## Scenario: Stats Store Read-Through Cache
+
+### 1. Scope / Trigger
+
+- Trigger: Changing stats history reads, dashboard plan summaries, plan detail
+  history, or `stats.Store.SaveRun`.
+- Scope: `internal/stats.Store` and callers in `internal/runtime` /
+  `internal/httpapi` that read `stats.json` during dashboard polling.
+
+### 2. Signatures
+
+```go
+func (s *Store) SaveRun(run model.StatsRun) error
+func (s *Store) LoadRuns() (map[string]model.StatsRun, error)
+func (s *Store) LoadRecords() ([]model.HistoryRecord, error)
+func (s *Store) SummaryByConfig() (map[string]model.PlanSummary, error)
+func (s *Store) HistoryForConfig(name string, limit int) ([]model.HistoryRecord, error)
+```
+
+### 3. Contracts
+
+- `stats.json` remains a JSON object keyed by run ID; no migration or schema
+  change is implied by caching.
+- `Store` may cache parsed runs, sorted run IDs, and per-config summaries
+  in-process to keep dashboard polling from repeatedly unmarshalling and
+  sorting unchanged files.
+- Cache freshness is determined by `stats.json` file size and modification time.
+  `SaveRun` must explicitly invalidate the same store's cache after a successful
+  write because some filesystems can report coarse timestamps.
+- Public methods returning maps must return cache-safe copies. Callers must not
+  be able to mutate cached `StatsRun.URLs`, `StatsRun.URLUsage`,
+  `StatsRun.History`, or `PlanSummary.LastRun`.
+- Missing, empty, or corrupt files keep the existing tolerant read behavior:
+  callers see empty stats data rather than an error.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| `stats.json` missing | Return empty runs, summaries, and history |
+| `stats.json` corrupt | Return empty runs, summaries, and history |
+| `SaveRun` write succeeds | New run is visible to the same `Store` immediately |
+| External process replaces `stats.json` | Next read refreshes when file state changes |
+| Caller mutates returned `LoadRuns` map or nested fields | Later reads still return cached source data |
+
+### 5. Good/Base/Bad Cases
+
+- Good: `SummaryByConfig` and `HistoryForConfig` share one cached parse and one
+  sorted key order while the file is unchanged.
+- Base: CLI history commands still call `LoadRuns` / `LoadRecords` and receive
+  ordinary maps and slices, unaware of the cache.
+- Bad: A caller writes `stats.json` directly, bypasses `SaveRun`, and then
+  expects an already-created `Store` to refresh without file metadata changing.
+
+### 6. Tests Required
+
+- Stats tests must cover summary cache invalidation after `SaveRun`.
+- Stats tests must cover refresh after an external `stats.json` write.
+- Stats tests must prove public map returns cannot mutate cached nested fields.
+- Runtime/API tests must still assert that dashboard summary metrics use current
+  task-session totals, not historical lifetime totals.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+runs, _ := store.LoadRuns()
+runs[id] = newRun
+// Cache is now stale or corrupted; write path also skipped file locking.
+```
+
+#### Correct
+
+```go
+if err := store.SaveRun(newRun); err != nil {
+    return err
+}
+summary, err := store.SummaryByConfig()
+```
+
 Business rules to preserve:
 
 - Missing config/stat files load as empty data.

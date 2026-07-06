@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -498,19 +499,24 @@ func (s *Server) registerAPI(r chi.Router) huma.API {
 }
 
 func (s *Server) dashboardSnapshot() (DashboardSnapshot, error) {
-	names, err := storage.ListConfigNames(s.Manager.Paths.ConfigFile)
+	savedConfigs, err := storage.LoadConfigs(s.Manager.Paths.ConfigFile)
 	if err != nil {
 		return DashboardSnapshot{}, err
 	}
+	names := make([]string, 0, len(savedConfigs))
+	for name := range savedConfigs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	configs := make([]ConfigSummary, 0, len(names))
 	for _, name := range names {
 		configs = append(configs, ConfigSummary{Name: name})
 	}
-	plans := s.Manager.PlanSummaries()
+	plans := s.Manager.PlanSummariesForConfigs(savedConfigs)
 	scheduler := s.Manager.SchedulerStatus()
 	return DashboardSnapshot{
 		Configs:   configs,
-		Status:    s.Manager.Status(),
+		Status:    s.Manager.StatusFromPlans(plans),
 		Scheduler: scheduler,
 		Plans:     plans,
 	}, nil

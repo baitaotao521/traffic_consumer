@@ -487,6 +487,11 @@ func (m *Manager) removeRuntimeItem(name string, target *Item) {
 
 // Status 返回当前状态面板数据。
 func (m *Manager) Status() model.StatusPayload {
+	return m.StatusFromPlans(m.PlanSummaries())
+}
+
+// StatusFromPlans 基于同一轮 dashboard 已经算出的计划列表聚合顶部状态，避免高频轮询重复读取 stats.json。
+func (m *Manager) StatusFromPlans(plans []model.PlanSummary) model.StatusPayload {
 	snapshot := m.snapshot()
 	state := model.StateStopped
 	if snapshot.hasActiveDownload {
@@ -495,7 +500,6 @@ func (m *Manager) Status() model.StatusPayload {
 		state = model.StateScheduled
 	}
 
-	plans := m.PlanSummaries()
 	totalRaw := int64(0)
 	downloadCount := int64(0)
 	speedBytes := 0.0
@@ -595,8 +599,13 @@ func (m *Manager) SchedulerStatus() model.SchedulerPayload {
 
 // PlanSummaries 返回保存配置和非临时运行态合并后的配置行。
 func (m *Manager) PlanSummaries() []model.PlanSummary {
-	historySummary, _ := m.Stats.SummaryByConfig()
 	savedConfigs, _ := storage.LoadConfigs(m.Paths.ConfigFile)
+	return m.PlanSummariesForConfigs(savedConfigs)
+}
+
+// PlanSummariesForConfigs 使用调用方已经读取的配置生成计划列表，避免 dashboard 快照重复读取 config.json。
+func (m *Manager) PlanSummariesForConfigs(savedConfigs map[string]model.Config) []model.PlanSummary {
+	historySummary, _ := m.Stats.SummaryByConfig()
 	planByName := map[string]model.PlanSummary{}
 	names := make([]string, 0, len(savedConfigs))
 	for name, cfg := range savedConfigs {
@@ -687,11 +696,6 @@ func (m *Manager) PlanDetail(name string) (model.PlanDetailPayload, error) {
 		summary.Threads = cfg.Threads
 		summary.CronExpr = cfg.CronExpr
 		summary.Interval = cfg.Interval
-	}
-	historySummary, _ := m.Stats.SummaryByConfig()
-	historyTotals := historySummary[name]
-	if summary.LastRun == nil {
-		summary.LastRun = historyTotals.LastRun
 	}
 	history, _ := m.Stats.HistoryForConfig(name, 50)
 	return model.PlanDetailPayload{Name: name, Config: cfg, Summary: summary, History: history}, nil
