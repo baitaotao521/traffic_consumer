@@ -400,3 +400,37 @@ Added frontend Trellis specs for Vue/Vite dashboard structure, API state flow, s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Scheduler download lifecycle fixes
+
+**Date**: 2026-07-06
+**Task**: Scheduler download lifecycle fixes
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Fixed scheduler/download lifecycle reliability issues, recorded each fix in 记录文档.md, updated backend specs, validated Go tests, race tests, vet, diff checks, and OpenAPI contract stability.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05d7dc8` | (see git log) |
+| `ee2439b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
