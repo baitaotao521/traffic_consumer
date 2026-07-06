@@ -5,6 +5,7 @@ import { h, render } from "vue"
 
 // Simple cache using a Map to store serialized object keys
 const cache = new Map<string, string>()
+const maxCachedTooltips = 500
 
 // Convert object to a consistent string key
 function serializeKey(key: Record<string, any>): string {
@@ -38,7 +39,17 @@ export function componentToString<P>(config: ChartConfig, component: Constructor
     const vnode = h<unknown>(component, { ...props, payload: data, config, x })
     const div = document.createElement("div")
     render(vnode, div)
-    cache.set(serializedKey, div.innerHTML)
+    rememberTooltip(serializedKey, div.innerHTML)
     return div.innerHTML
   }
+}
+
+function rememberTooltip(key: string, content: string) {
+  if (cache.size >= maxCachedTooltips) {
+    const oldestKey = cache.keys().next().value
+    if (oldestKey !== undefined)
+      cache.delete(oldestKey)
+  }
+  // 实时图表的采样标签会持续变化，限制缓存容量可以避免长时间打开 dashboard 后 tooltip HTML 堆积。
+  cache.set(key, content)
 }
