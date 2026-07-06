@@ -434,3 +434,38 @@ Fixed scheduler/download lifecycle reliability issues, recorded each fix in шо░х
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Performance hotspot optimization
+
+**Date**: 2026-07-06
+**Task**: Performance hotspot optimization
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Optimized dashboard stats hot path, bounded chart tooltip cache, reduced download/url-manager hot-path overhead, and documented stats cache contract.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `21015be` | (see git log) |
+| `7f60b8d` | (see git log) |
+| `d783506` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
