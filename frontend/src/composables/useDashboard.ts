@@ -587,7 +587,7 @@ export function useDashboard() {
   })
 
   watch(() => dashboardQuery.data.value, (response) => {
-    const nextStatus = response?.dashboard.status
+    const nextStatus = response?.dashboard?.status
     if (!nextStatus) return
     const normalizedStatus = normalizeStatus(nextStatus)
     const sampledThreadCounts = makeThreadCounts(makeThreadRows(normalizedStatus))
