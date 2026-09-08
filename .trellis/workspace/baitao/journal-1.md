@@ -469,3 +469,36 @@ Optimized dashboard stats hot path, bounded chart tooltip cache, reduced downloa
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Deploy Traffic Consumer to 192.168.5.251
+
+**Date**: 2026-09-08
+**Task**: Deploy Traffic Consumer to 192.168.5.251
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Built and smoke-tested a linux/amd64 Docker image, deployed it through Netcatty to root@192.168.5.251, preserved the existing data and rollback container, verified the dashboard and API over the LAN, and recorded rollback details.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba96cc4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
