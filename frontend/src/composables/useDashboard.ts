@@ -723,6 +723,8 @@ export function useDashboard() {
 
   return {
     activeConfigCount,
+    dashboardError: dashboardQuery.error,
+    hasDashboardData: computed(() => Boolean(dashboardQuery.data.value)),
     cancelPendingAction,
     clearLogs,
     confirmDialogActionLabel,

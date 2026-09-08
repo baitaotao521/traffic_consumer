@@ -2,7 +2,7 @@
 import { ListIcon } from '@lucide/vue'
 
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Progress } from '@/components/ui/progress'
@@ -18,8 +18,10 @@ defineProps<{
 
 <template>
   <Card>
-    <CardHeader class="border-b py-3">
-      <CardTitle>线程状态监控</CardTitle>
+    <CardHeader>
+      <CardTitle>工作线程</CardTitle>
+      <CardDescription>共 {{ threadCounts.total }} 个线程 · {{ threadCounts.active }} 个活跃 · {{ threadCounts.idle }} 个待命</CardDescription>
+      <CardAction><Badge :variant="threadCounts.errored ? 'destructive' : 'secondary'">{{ threadCounts.errored }} 个异常</Badge></CardAction>
     </CardHeader>
     <CardContent class="p-0">
       <div class="md:hidden">
@@ -57,9 +59,9 @@ defineProps<{
         </div>
       </div>
 
-      <ScrollArea class="hidden h-[300px] md:block">
+      <ScrollArea class="hidden h-[min(60vh,640px)] md:block">
         <Table>
-          <TableHeader class="bg-muted">
+          <TableHeader>
             <TableRow>
               <TableHead class="w-[96px]">线程ID</TableHead>
               <TableHead class="w-[100px]">状态</TableHead>

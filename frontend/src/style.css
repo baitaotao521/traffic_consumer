@@ -1,3 +1,6 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap');
+
 @import "tailwindcss";
 
 @source not "../dist";
@@ -51,42 +54,42 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.978 0.004 170);
+  --foreground: oklch(0.27 0.025 190);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --success: oklch(0.54 0.16 145);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.48 0.09 177);
+  --primary-foreground: oklch(0.995 0 0);
+  --secondary: oklch(0.945 0.022 174);
+  --secondary-foreground: oklch(0.39 0.07 177);
+  --muted: oklch(0.96 0.006 170);
+  --muted-foreground: oklch(0.50 0.02 190);
+  --accent: oklch(0.944 0.024 173);
+  --accent-foreground: oklch(0.39 0.07 177);
+  --destructive: oklch(0.55 0.20 25);
+  --success: oklch(0.48 0.10 163);
   --status-running: var(--success);
-  --status-scheduled: oklch(0.6 0.118 184.704);
+  --status-scheduled: oklch(0.52 0.10 250);
   --status-stopped: var(--muted-foreground);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --border: oklch(0.91 0.009 170);
+  --input: oklch(0.87 0.012 170);
+  --ring: var(--primary);
+  --chart-1: oklch(0.56 0.105 174);
+  --chart-2: oklch(0.62 0.11 244);
+  --chart-3: oklch(0.73 0.13 80);
+  --chart-4: oklch(0.63 0.12 305);
+  --chart-5: oklch(0.70 0.12 35);
+  --radius: 0.65rem;
+  --sidebar: oklch(0.992 0.003 170);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
@@ -133,9 +136,23 @@
   }
 
   body {
+    font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
     @apply bg-background text-foreground;
+  }
+}
+
+@layer base {
+  ::selection { background: var(--accent); color: var(--accent-foreground); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page-enter { animation: page-enter 180ms ease-out; }
+  @keyframes page-enter {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 }

@@ -1,233 +1,106 @@
 <script setup lang="ts">
-import { CalendarDaysIcon, ListChecksIcon, PencilIcon, PlayIcon, SquareIcon, Trash2Icon } from '@lucide/vue'
-
+import { ArrowUpRightIcon, CalendarDaysIcon, ListChecksIcon, PencilIcon, PlayIcon, PlusIcon, SearchIcon, SquareIcon, Trash2Icon, XIcon } from '@lucide/vue'
+import { computed, ref } from 'vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { BadgeVariant, PlanSummary } from '@/types'
 
-defineProps<{
+const props = defineProps<{
+  compact?: boolean
   formatDateTime: (value?: string) => string
   formatPlanSchedule: (plan: PlanSummary) => string
   plans: PlanSummary[]
   planState: (plan: PlanSummary) => { label: string; variant: BadgeVariant }
 }>()
-
-defineEmits<{
+const emit = defineEmits<{
+  createConfig: []
   deletePlan: [plan: PlanSummary]
   editPlan: [plan: PlanSummary]
   openPlanDetail: [plan: PlanSummary]
   startPlan: [plan: PlanSummary]
   stopPlan: [plan: PlanSummary]
 }>()
+const search = ref('')
+const stateFilter = ref('all')
+const filters = [{ value: 'all', label: '全部' }, { value: 'running', label: '运行中' }, { value: 'scheduled', label: '调度中' }, { value: 'idle', label: '未启动' }]
+const filteredPlans = computed(() => props.plans.filter((plan) => {
+  if (props.compact) return true
+  const matchesName = plan.name.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())
+  const matchesState = stateFilter.value === 'all' || (stateFilter.value === 'running' && plan.running) || (stateFilter.value === 'scheduled' && plan.scheduler_running) || (stateFilter.value === 'idle' && !plan.running && !plan.scheduler_running)
+  return matchesName && matchesState
+}))
+const visiblePlans = computed(() => props.compact ? filteredPlans.value.slice(0, 4) : filteredPlans.value)
+function resetFilters() { search.value = ''; stateFilter.value = 'all' }
+const actions = [
+  { event: 'openPlanDetail', label: '查看详情', icon: ListChecksIcon },
+  { event: 'editPlan', label: '编辑配置', icon: PencilIcon },
+  { event: 'deletePlan', label: '删除配置', icon: Trash2Icon },
+] as const
+function runRowAction(action: typeof actions[number]['event'], plan: PlanSummary) {
+  if (action === 'openPlanDetail') emit('openPlanDetail', plan)
+  else if (action === 'editPlan') emit('editPlan', plan)
+  else emit('deletePlan', plan)
+}
 </script>
 
 <template>
-  <Card class="min-h-[420px]">
-    <CardHeader class="border-b py-3">
-      <div class="flex items-center justify-between gap-3">
-        <CardTitle>配置列表</CardTitle>
-        <Badge variant="secondary">{{ plans.length }}</Badge>
-      </div>
+  <Card class="min-w-0">
+    <CardHeader>
+      <CardTitle>{{ compact ? '配置概览' : '配置列表' }}</CardTitle>
+      <CardDescription>共 {{ plans.length }} 个配置{{ compact ? '' : ` · 当前显示 ${filteredPlans.length} 个` }}</CardDescription>
+      <CardAction><Button v-if="compact" variant="ghost" size="sm" as-child><a href="#plans">查看全部<ArrowUpRightIcon data-icon="inline-end" /></a></Button><Badge v-else variant="secondary">{{ plans.length }}</Badge></CardAction>
     </CardHeader>
-    <CardContent class="p-0">
-      <div class="md:hidden">
-        <div v-if="!plans.length" class="p-6">
-          <Empty class="p-0">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <CalendarDaysIcon />
-              </EmptyMedia>
-              <EmptyTitle>暂无配置</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-        </div>
-        <div v-else class="divide-y">
-          <div v-for="plan in plans" :key="`mobile-${plan.name}`" class="grid gap-3 px-4 py-3">
-            <div class="flex min-w-0 items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="truncate font-medium">{{ plan.name }}</div>
-                <div class="mt-0.5 truncate text-xs text-muted-foreground">{{ formatPlanSchedule(plan) }}</div>
-              </div>
-              <Badge :variant="planState(plan).variant">{{ planState(plan).label }}</Badge>
-            </div>
-
-            <div class="grid grid-cols-3 gap-2 text-xs">
-              <div>
-                <div class="text-muted-foreground">速度</div>
-                <div class="font-mono font-medium tabular-nums">{{ plan.speed || '0 B/s' }}</div>
-              </div>
-              <div>
-                <div class="text-muted-foreground">流量</div>
-                <div class="font-mono font-medium tabular-nums">{{ plan.total_bytes || '0 B' }}</div>
-              </div>
-              <div>
-                <div class="text-muted-foreground">下载</div>
-                <div class="font-mono font-medium tabular-nums">{{ plan.download_count || 0 }}</div>
-              </div>
-              <div>
-                <div class="text-muted-foreground">线程</div>
-                <div class="font-mono font-medium tabular-nums">{{ plan.threads || 0 }}</div>
-              </div>
-              <div>
-                <div class="text-muted-foreground">链接</div>
-                <div class="font-mono font-medium tabular-nums">{{ plan.url_count || 0 }}</div>
-              </div>
-              <div>
-                <div class="text-muted-foreground">下次执行</div>
-                <div class="truncate font-medium">{{ formatDateTime(plan.next_run_time) }}</div>
-              </div>
-            </div>
-
-            <div class="text-xs">
-              <span class="text-muted-foreground">上次运行</span>
-              <span v-if="plan.last_run" class="ml-1">
-                {{ plan.last_run.result || '成功' }} · {{ plan.last_run.bytes_consumed || '0 B' }}
-              </span>
-              <span v-else class="ml-1 text-muted-foreground">无</span>
-            </div>
-
-            <div class="flex flex-wrap gap-2">
-              <Button class="flex-1 sm:flex-none" size="xs" variant="outline" @click="$emit('openPlanDetail', plan)">
-                <ListChecksIcon data-icon="inline-start" />
-                详情
-              </Button>
-              <Button class="flex-1 sm:flex-none" size="xs" variant="outline" @click="$emit('editPlan', plan)">
-                <PencilIcon data-icon="inline-start" />
-                编辑
-              </Button>
-              <Button
-                class="flex-1 sm:flex-none"
-                size="xs"
-                :disabled="plan.running || plan.scheduler_running"
-                @click="$emit('startPlan', plan)"
-              >
-                <PlayIcon data-icon="inline-start" />
-                启动
-              </Button>
-              <Button
-                class="flex-1 sm:flex-none"
-                size="xs"
-                variant="outline"
-                :disabled="!plan.running && !plan.scheduler_running"
-                @click="$emit('stopPlan', plan)"
-              >
-                <SquareIcon data-icon="inline-start" />
-                停止
-              </Button>
-              <Button class="flex-1 sm:flex-none" size="xs" variant="destructive" @click="$emit('deletePlan', plan)">
-                <Trash2Icon data-icon="inline-start" />
-                删除
-              </Button>
-            </div>
-          </div>
-        </div>
+    <CardContent class="flex min-w-0 flex-col gap-5">
+      <div v-if="!compact" class="flex flex-wrap items-center justify-between gap-3">
+        <InputGroup class="w-full sm:w-72">
+          <InputGroupAddon><SearchIcon /></InputGroupAddon>
+          <InputGroupInput v-model="search" placeholder="搜索配置名称…" aria-label="搜索配置名称" />
+          <InputGroupAddon v-if="search" align="inline-end"><InputGroupButton size="icon-xs" aria-label="清除搜索" @click="search = ''"><XIcon /></InputGroupButton></InputGroupAddon>
+        </InputGroup>
+        <ToggleGroup :model-value="stateFilter" type="single" variant="outline" size="sm" aria-label="筛选配置状态" @update:model-value="stateFilter = String($event || 'all')">
+          <ToggleGroupItem v-for="filter in filters" :key="filter.value" :value="filter.value">{{ filter.label }}</ToggleGroupItem>
+        </ToggleGroup>
       </div>
-
-      <ScrollArea class="hidden h-[378px] md:block">
-        <Table class="min-w-[1220px]">
-          <TableHeader class="bg-muted">
-            <TableRow>
-              <TableHead class="min-w-[180px]">配置</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>速度</TableHead>
-              <TableHead>流量</TableHead>
-              <TableHead class="text-right">下载</TableHead>
-              <TableHead class="text-right">线程</TableHead>
-              <TableHead class="text-right">链接</TableHead>
-              <TableHead class="min-w-[180px]">上次运行结果</TableHead>
-              <TableHead class="min-w-[160px]">调度</TableHead>
-              <TableHead class="min-w-[260px] text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody id="runtime-plan-list">
-            <TableEmpty v-if="!plans.length" :colspan="10" class="py-0">
-              <Empty class="p-0">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <CalendarDaysIcon />
-                  </EmptyMedia>
-                  <EmptyTitle>暂无配置</EmptyTitle>
-                </EmptyHeader>
-              </Empty>
-            </TableEmpty>
-            <TableRow v-for="plan in plans" :key="plan.name">
-              <TableCell class="font-medium">
-                <HoverCard :open-delay="120">
-                  <HoverCardTrigger as-child>
-                    <div class="max-w-[220px] truncate">{{ plan.name }}</div>
-                  </HoverCardTrigger>
-                  <HoverCardContent class="w-64 break-all">
-                    {{ plan.name }}
-                  </HoverCardContent>
-                </HoverCard>
-              </TableCell>
-              <TableCell>
-                <Badge :variant="planState(plan).variant">{{ planState(plan).label }}</Badge>
-              </TableCell>
-              <TableCell>{{ plan.speed || '0 B/s' }}</TableCell>
-              <TableCell>{{ plan.total_bytes || '0 B' }}</TableCell>
-              <TableCell class="text-right">{{ plan.download_count || 0 }}</TableCell>
-              <TableCell class="text-right">{{ plan.threads || 0 }}</TableCell>
-              <TableCell class="text-right">{{ plan.url_count || 0 }}</TableCell>
-              <TableCell>
-                <div v-if="plan.last_run" class="max-w-[180px]">
-                  <div class="truncate">
-                    {{ plan.last_run.result || '成功' }} · {{ plan.last_run.bytes_consumed || '0 B' }}
-                  </div>
-                  <div class="text-xs text-muted-foreground">
-                    {{ formatDateTime(plan.last_run.timestamp) }}
-                  </div>
-                </div>
-                <span v-else class="text-muted-foreground">无</span>
-              </TableCell>
-              <TableCell>
-                <div class="max-w-[180px] truncate">{{ formatPlanSchedule(plan) }}</div>
-                <div v-if="plan.next_run_time" class="text-xs text-muted-foreground">
-                  {{ formatDateTime(plan.next_run_time) }}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div class="flex justify-end gap-2">
-                  <Button size="xs" variant="outline" @click="$emit('openPlanDetail', plan)">
-                    <ListChecksIcon data-icon="inline-start" />
-                    详情
-                  </Button>
-                  <Button size="xs" variant="outline" @click="$emit('editPlan', plan)">
-                    <PencilIcon data-icon="inline-start" />
-                    编辑
-                  </Button>
-                  <Button
-                    size="xs"
-                    :disabled="plan.running || plan.scheduler_running"
-                    @click="$emit('startPlan', plan)"
-                  >
-                    <PlayIcon data-icon="inline-start" />
-                    启动
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    :disabled="!plan.running && !plan.scheduler_running"
-                    @click="$emit('stopPlan', plan)"
-                  >
-                    <SquareIcon data-icon="inline-start" />
-                    停止
-                  </Button>
-                  <Button size="xs" variant="destructive" @click="$emit('deletePlan', plan)">
-                    <Trash2Icon data-icon="inline-start" />
-                    删除
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-      </ScrollArea>
+      <Empty v-if="!visiblePlans.length" class="min-h-[260px]">
+        <EmptyHeader><EmptyMedia variant="icon"><CalendarDaysIcon /></EmptyMedia><EmptyTitle>{{ plans.length ? '没有匹配的配置' : '创建你的第一个配置' }}</EmptyTitle><EmptyDescription>{{ plans.length ? '试试其他名称或运行状态。' : '添加下载地址，设置执行策略，开始管理流量。' }}</EmptyDescription></EmptyHeader>
+        <EmptyContent><Button v-if="plans.length" variant="outline" @click="resetFilters">清除筛选</Button><Button v-else @click="$emit('createConfig')"><PlusIcon data-icon="inline-start" />新建配置</Button></EmptyContent>
+      </Empty>
+      <template v-else>
+        <div class="grid gap-4 lg:hidden">
+          <Card v-for="plan in visiblePlans" :key="`mobile-${plan.name}`" size="sm">
+            <CardHeader><CardTitle><Button variant="link" class="max-w-full justify-start" @click="$emit('openPlanDetail', plan)"><span class="truncate">{{ plan.name }}</span></Button></CardTitle><CardDescription>{{ formatPlanSchedule(plan) }}</CardDescription><CardAction><Badge :variant="planState(plan).variant">{{ planState(plan).label }}</Badge></CardAction></CardHeader>
+            <CardContent><dl class="grid grid-cols-3 gap-3 text-xs"><div><dt class="text-muted-foreground">速度</dt><dd class="mt-1 font-medium tabular-nums">{{ plan.speed || '0 B/s' }}</dd></div><div><dt class="text-muted-foreground">流量</dt><dd class="mt-1 font-medium tabular-nums">{{ plan.total_bytes || '0 B' }}</dd></div><div><dt class="text-muted-foreground">下载次数</dt><dd class="mt-1 font-medium tabular-nums">{{ plan.download_count || 0 }}</dd></div></dl><p class="mt-3 text-xs text-muted-foreground">{{ plan.threads || 0 }} 线程 · {{ plan.url_count || 0 }} 个 URL</p><p v-if="plan.next_run_time" class="mt-2 text-xs text-muted-foreground">下次执行 {{ formatDateTime(plan.next_run_time) }}</p></CardContent>
+            <CardFooter class="flex-wrap gap-2">
+              <Button size="sm" :variant="plan.running || plan.scheduler_running ? 'outline' : 'default'" @click="plan.running || plan.scheduler_running ? $emit('stopPlan', plan) : $emit('startPlan', plan)"><SquareIcon v-if="plan.running || plan.scheduler_running" data-icon="inline-start" /><PlayIcon v-else data-icon="inline-start" />{{ plan.running || plan.scheduler_running ? '停止' : '启动' }}</Button>
+              <Button v-for="action in actions" :key="action.event" variant="ghost" size="icon-sm" :aria-label="`${action.label} ${plan.name}`" @click="runRowAction(action.event, plan)"><component :is="action.icon" data-icon="inline-start" /></Button>
+            </CardFooter>
+          </Card>
+        </div>
+        <div class="hidden lg:block">
+          <Table>
+            <TableHeader><TableRow><TableHead>配置名称</TableHead><TableHead>状态</TableHead><TableHead>实时速率 / 流量</TableHead><TableHead>执行安排</TableHead><TableHead v-if="!compact">上次运行</TableHead><TableHead class="text-right">操作</TableHead></TableRow></TableHeader>
+            <TableBody id="runtime-plan-list">
+              <TableRow v-for="plan in visiblePlans" :key="plan.name">
+                <TableCell><Tooltip><TooltipTrigger as-child><Button variant="link" class="max-w-[180px] justify-start" @click="$emit('openPlanDetail', plan)"><span class="truncate">{{ plan.name }}</span></Button></TooltipTrigger><TooltipContent>{{ plan.name }}</TooltipContent></Tooltip><p class="text-xs text-muted-foreground">{{ plan.threads || 0 }} 线程 · {{ plan.url_count || 0 }} 个 URL</p></TableCell>
+                <TableCell><Badge :variant="planState(plan).variant">{{ planState(plan).label }}</Badge></TableCell>
+                <TableCell><div class="font-medium tabular-nums">{{ plan.speed || '0 B/s' }}</div><div class="mt-1 text-xs text-muted-foreground">{{ plan.total_bytes || '0 B' }} · {{ plan.download_count || 0 }} 次</div></TableCell>
+                <TableCell><div class="max-w-[180px] truncate">{{ formatPlanSchedule(plan) }}</div><div class="mt-1 text-xs text-muted-foreground">{{ plan.next_run_time ? formatDateTime(plan.next_run_time) : '暂无下次执行' }}</div></TableCell>
+                <TableCell v-if="!compact"><div>{{ plan.last_run?.result || '暂无记录' }}</div><div v-if="plan.last_run" class="mt-1 text-xs text-muted-foreground">{{ plan.last_run.bytes_consumed || '0 B' }} · {{ formatDateTime(plan.last_run.timestamp) }}</div></TableCell>
+                <TableCell><div class="flex justify-end gap-1">
+                  <Button size="sm" :variant="plan.running || plan.scheduler_running ? 'outline' : 'default'" :aria-label="`${plan.running || plan.scheduler_running ? '停止' : '启动'} ${plan.name}`" @click="plan.running || plan.scheduler_running ? $emit('stopPlan', plan) : $emit('startPlan', plan)"><SquareIcon v-if="plan.running || plan.scheduler_running" data-icon="inline-start" /><PlayIcon v-else data-icon="inline-start" />{{ plan.running || plan.scheduler_running ? '停止' : '启动' }}</Button>
+                  <Tooltip v-for="action in actions" :key="action.event"><TooltipTrigger as-child><Button variant="ghost" size="icon-sm" :aria-label="`${action.label} ${plan.name}`" @click="runRowAction(action.event, plan)"><component :is="action.icon" data-icon="inline-start" /></Button></TooltipTrigger><TooltipContent>{{ action.label }}</TooltipContent></Tooltip>
+                </div></TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </template>
     </CardContent>
   </Card>
 </template>

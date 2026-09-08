@@ -4,7 +4,7 @@ import { nextTick, ref, watch } from 'vue'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Label } from '@/components/ui/label'
@@ -53,9 +53,10 @@ watch(
 
 <template>
   <Card>
+    <CardHeader><CardTitle>运行记录</CardTitle><CardDescription>按来源与级别筛选日志，查看计划调度历史。</CardDescription></CardHeader>
     <Tabs default-value="logs">
       <CardHeader class="border-b py-2">
-        <TabsList>
+        <TabsList variant="line">
           <TabsTrigger value="logs">实时日志</TabsTrigger>
           <TabsTrigger value="history">调度历史</TabsTrigger>
         </TabsList>
@@ -130,9 +131,9 @@ watch(
           <ScrollArea
             id="log-container"
             ref="logScrollArea"
-            class="h-[200px] border-t bg-muted px-4 py-3 font-mono text-xs"
+            class="h-[min(52vh,540px)]"
           >
-            <div v-if="logs.length">
+            <div v-if="logs.length" class="px-4 py-3 font-mono text-xs">
               <div v-for="entry in logs" :key="entry.seq" class="mb-2 flex items-center gap-2">
                 <span class="shrink-0 text-muted-foreground">[{{ new Date(entry.timestamp || Date.now()).toLocaleTimeString() }}]</span>
                 <div class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -142,14 +143,14 @@ watch(
                     <HoverCardTrigger as-child>
                       <span :class="['min-w-0 flex-1 truncate', logLevelClass(entry.level)]">{{ entry.message }}</span>
                     </HoverCardTrigger>
-                    <HoverCardContent class="w-[28rem] break-all font-sans text-sm">
+                    <HoverCardContent class="w-[min(28rem,85vw)] break-all">
                       {{ entry.message }}
                     </HoverCardContent>
                   </HoverCard>
                 </div>
               </div>
             </div>
-            <Empty v-else class="min-h-[176px] p-0">
+            <Empty v-else class="min-h-[320px]">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <FileTextIcon />
@@ -195,7 +196,7 @@ watch(
 
           <div class="hidden md:block">
             <Table>
-              <TableHeader class="bg-muted">
+              <TableHeader>
                 <TableRow>
                   <TableHead>计划</TableHead>
                   <TableHead>下次执行</TableHead>

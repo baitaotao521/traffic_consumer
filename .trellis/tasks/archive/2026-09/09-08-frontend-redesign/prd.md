@@ -18,12 +18,20 @@
 - 手机导航可用，表格局部滚动，键盘焦点可辨识。
 
 ## Acceptance criteria
-- [ ] 四个导航入口可切换，刷新与浏览器前进后退保留页面。
-- [ ] 首屏指标及图表真实，空状态和加载状态清楚。
-- [ ] 搜索/筛选可组合，清除筛选恢复列表。
-- [ ] 创建/编辑/详情和危险动作确认可达。
-- [ ] 390px 手机与桌面均无页面横向溢出。
-- [ ] 生产构建、差异检查和浏览器交互验证通过。
+- [x] 四个导航入口可切换，刷新与浏览器前进后退保留页面。
+- [x] 首屏指标及图表真实，空状态和加载状态清楚。
+- [x] 搜索/筛选可组合，清除筛选恢复列表。
+- [x] 创建/编辑/详情和危险动作确认可达。
+- [x] 390px 手机与桌面均无页面横向溢出。
+- [x] 生产构建、差异检查和浏览器交互验证通过。
 
 ## Out of scope
 后端契约重写、远程部署、新增身份认证。
+
+## Validation notes
+
+- `npm --prefix frontend run build`: passed (vue-tsc and Vite).
+- `git diff --check`: passed.
+- Browser QA at desktop and 390px: navigation drawer, plan name search, state filters, empty results, reset filters, config save, cross-tab error positioning, delete confirmation/cancel, thread empty state, and log pause state.
+- QA used an isolated local data directory at `/tmp/traffic-redesign-qa-20260908`; remote deployment data was not modified.
+- Connection error state is explicit, and the previous snapshot is retained only when available.

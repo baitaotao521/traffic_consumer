@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { BoltIcon, Clock3Icon, PlusIcon, RotateCcwIcon, SaveIcon, Trash2Icon, XIcon } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
@@ -27,6 +27,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Spinner } from '@/components/ui/spinner'
 import type { ConfigEditorField, ConfigValidationErrors } from '@/domain/configEditor'
 import type { ConfigForm, HistoryRecord } from '@/types'
@@ -61,6 +62,18 @@ const props = withDefaults(defineProps<{
 }>(), {
   errors: () => ({}),
 })
+
+const editorTab = ref('basic')
+// 保存/测试发现跨页错误时，直接显示第一个错误所在的配置页。
+watch(() => props.errors, (errors) => {
+  const fields = Object.keys(errors).filter((field) => errors[field as ConfigEditorField]?.length)
+  if (!fields.length) return
+  const first = fields[0]
+  if (['name', 'threads', 'url_strategy', 'urls'].includes(first || '')) editorTab.value = 'basic'
+  else if (['interval', 'cron_expr'].includes(first || '')) editorTab.value = 'schedule'
+  else if (['request_headers', 'user_agent'].includes(first || '')) editorTab.value = 'request'
+  else editorTab.value = 'limits'
+}, { deep: true })
 
 const open = defineModel<boolean>('open', { required: true })
 
@@ -112,10 +125,10 @@ function handleOpenUpdate(nextOpen: boolean) {
   <Dialog :open="open" @update:open="handleOpenUpdate">
     <DialogContent
       :show-close-button="false"
-      class="h-[min(90vh,860px)] max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[1100px]"
+      class="flex h-[min(90dvh,820px)] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
     >
       <DialogHeader class="flex-row items-center justify-between border-b px-6 py-4">
-        <DialogTitle>任务配置</DialogTitle>
+        <div class="flex flex-col gap-1"><DialogTitle>任务配置</DialogTitle><DialogDescription>下载地址、执行策略与自动调度</DialogDescription></div>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -127,14 +140,15 @@ function handleOpenUpdate(nextOpen: boolean) {
         </Button>
       </DialogHeader>
 
-      <ScrollArea class="min-h-0 flex-1">
-        <div class="grid gap-4 px-6 py-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-          <div class="grid gap-4">
-            <Card>
-              <CardHeader class="border-b py-3">
+      <Tabs v-model="editorTab" class="min-h-0 flex-1 gap-4 overflow-hidden">
+        <div class="overflow-x-auto px-6 pt-4"><TabsList variant="line" aria-label="配置分类"><TabsTrigger value="basic">基础配置</TabsTrigger><TabsTrigger value="limits">执行控制</TabsTrigger><TabsTrigger value="schedule">自动调度</TabsTrigger><TabsTrigger value="request">请求设置</TabsTrigger></TabsList></div>
+        <ScrollArea class="min-h-0 flex-1">
+          <div class="px-6 pb-6">
+            <TabsContent value="basic"><Card>
+              <CardHeader >
                 <CardTitle>基础配置</CardTitle>
               </CardHeader>
-              <CardContent class="py-4">
+              <CardContent >
                 <FieldGroup>
                   <Field :data-invalid="hasError('name') ? true : undefined">
                     <FieldLabel for="config-name">配置名称</FieldLabel>
@@ -147,7 +161,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                     <FieldError :errors="errors.name" />
                   </Field>
 
-                  <div class="grid gap-4 sm:grid-cols-2">
+                  <FieldGroup class="grid gap-4 sm:grid-cols-2">
                     <Field :data-invalid="hasError('threads') ? true : undefined">
                       <FieldLabel for="config-threads">线程数量</FieldLabel>
                       <NumberField
@@ -182,7 +196,7 @@ function handleOpenUpdate(nextOpen: boolean) {
                       </Select>
                       <FieldError :errors="errors.url_strategy" />
                     </Field>
-                  </div>
+                  </FieldGroup>
 
                   <Field :data-invalid="hasError('urls') ? true : undefined">
                     <div class="flex items-center justify-between gap-3">
@@ -193,10 +207,10 @@ function handleOpenUpdate(nextOpen: boolean) {
                       </Button>
                     </div>
                     <div class="overflow-hidden rounded-lg border">
-                      <Table class="min-w-[520px]">
+                      <Table>
                         <TableHeader class="bg-muted">
                           <TableRow>
-                            <TableHead class="w-[56px] text-right">序号</TableHead>
+                            <TableHead class="hidden w-[56px] text-right sm:table-cell">序号</TableHead>
                             <TableHead>URL</TableHead>
                             <TableHead class="w-[48px]">
                               <span class="sr-only">操作</span>
@@ -205,11 +219,12 @@ function handleOpenUpdate(nextOpen: boolean) {
                         </TableHeader>
                         <TableBody>
                           <TableRow v-for="(row, index) in urlRows" :key="`url-row-${index}`">
-                            <TableCell class="text-right text-muted-foreground">
+                            <TableCell class="hidden text-right sm:table-cell">
                               {{ index + 1 }}
                             </TableCell>
-                            <TableCell class="min-w-[360px]">
+                            <TableCell class="w-full">
                               <Input
+                                :aria-label="`下载地址 ${index + 1}`"
                                 :id="`url-row-input-${index}`"
                                 :model-value="row"
                                 :aria-invalid="hasError('urls') || undefined"
@@ -237,13 +252,12 @@ function handleOpenUpdate(nextOpen: boolean) {
                   </Field>
                 </FieldGroup>
               </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader class="border-b py-3">
+            </Card></TabsContent>
+            <TabsContent value="limits" class="flex flex-col gap-4"><Card>
+              <CardHeader >
                 <CardTitle>执行限制</CardTitle>
               </CardHeader>
-              <CardContent class="py-4">
+              <CardContent >
                 <FieldGroup class="grid gap-4 sm:grid-cols-2">
                   <Field :data-invalid="hasError('limit_speed') ? true : undefined">
                     <FieldLabel for="config-limit-speed">限速 (MB/s)</FieldLabel>
@@ -367,15 +381,39 @@ function handleOpenUpdate(nextOpen: boolean) {
                   </Field>
                 </FieldGroup>
               </CardContent>
-            </Card>
-          </div>
+            </Card><Card>
+              <CardHeader >
+                <CardTitle>运行行为</CardTitle>
+              </CardHeader>
+              <CardContent >
+                <FieldGroup>
+                  <Field orientation="horizontal" class="justify-between">
+                    <FieldContent>
+                      <FieldLabel for="auto-remove-failed-url">失败链接自动移除</FieldLabel>
+                    </FieldContent>
+                    <Switch
+                      id="auto-remove-failed-url"
+                      v-model="form.auto_remove_failed_url"
+                    />
+                  </Field>
 
-          <div class="grid gap-4">
-            <Card>
-              <CardHeader class="border-b py-3">
+                  <Field orientation="horizontal" class="justify-between">
+                    <FieldContent>
+                      <FieldLabel for="auto-start">启动自动运行</FieldLabel>
+                    </FieldContent>
+                    <Switch
+                      id="auto-start"
+                      v-model="form.auto_start"
+                    />
+                  </Field>
+                </FieldGroup>
+              </CardContent>
+            </Card></TabsContent>
+            <TabsContent value="schedule" class="flex flex-col gap-4"><Card>
+              <CardHeader >
                 <CardTitle>调度设置</CardTitle>
               </CardHeader>
-              <CardContent class="grid gap-4 py-4">
+              <CardContent class="grid gap-4">
                 <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                   <Field :data-invalid="hasError('interval') ? true : undefined">
                     <FieldLabel for="config-interval">间隔 (分钟)</FieldLabel>
@@ -408,10 +446,10 @@ function handleOpenUpdate(nextOpen: boolean) {
                   </Field>
                 </div>
 
-                <Alert id="cron-preview" class="border-dashed">
+                <Alert id="cron-preview" >
                   <Clock3Icon class="text-muted-foreground" />
                   <AlertTitle>执行预览</AlertTitle>
-                  <AlertDescription class="text-xs">
+                  <AlertDescription>
                     <ul v-if="cronPreview.length" class="grid gap-1">
                       <li v-for="time in cronPreview" :key="time">{{ formatDateTime(time) }}</li>
                     </ul>
@@ -419,13 +457,36 @@ function handleOpenUpdate(nextOpen: boolean) {
                   </AlertDescription>
                 </Alert>
               </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader class="border-b py-3">
+            </Card><Card>
+              <CardHeader >
+                <CardTitle>上次运行结果</CardTitle>
+              </CardHeader>
+              <CardContent class="grid gap-3 py-4 text-sm">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <div class="text-xs text-muted-foreground">状态</div>
+                    <div class="font-medium">{{ lastRun?.result || '无' }}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-muted-foreground">流量</div>
+                    <div class="font-medium">{{ lastRun?.bytes_consumed || '0 B' }}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-muted-foreground">下载</div>
+                    <div class="font-medium">{{ lastRun?.download_count || 0 }}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-muted-foreground">时间</div>
+                    <div class="truncate font-medium">{{ formatDateTime(lastRun?.timestamp) }}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card></TabsContent>
+            <TabsContent value="request"><Card>
+              <CardHeader >
                 <CardTitle>请求设置</CardTitle>
               </CardHeader>
-              <CardContent class="py-4">
+              <CardContent >
                 <FieldGroup>
                   <Field :data-invalid="hasError('user_agent') ? true : undefined">
                     <FieldLabel for="user-agent">User-Agent</FieldLabel>
@@ -450,67 +511,12 @@ function handleOpenUpdate(nextOpen: boolean) {
                   </Field>
                 </FieldGroup>
               </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader class="border-b py-3">
-                <CardTitle>运行行为</CardTitle>
-              </CardHeader>
-              <CardContent class="py-4">
-                <FieldGroup>
-                  <Field orientation="horizontal" class="justify-between rounded-lg border bg-muted px-4 py-3">
-                    <FieldContent>
-                      <FieldLabel for="auto-remove-failed-url">失败链接自动移除</FieldLabel>
-                    </FieldContent>
-                    <Switch
-                      id="auto-remove-failed-url"
-                      v-model="form.auto_remove_failed_url"
-                    />
-                  </Field>
-
-                  <Field orientation="horizontal" class="justify-between rounded-lg border bg-muted px-4 py-3">
-                    <FieldContent>
-                      <FieldLabel for="auto-start">启动自动运行</FieldLabel>
-                    </FieldContent>
-                    <Switch
-                      id="auto-start"
-                      v-model="form.auto_start"
-                    />
-                  </Field>
-                </FieldGroup>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader class="border-b py-3">
-                <CardTitle>上次运行结果</CardTitle>
-              </CardHeader>
-              <CardContent class="grid gap-3 py-4 text-sm">
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <div class="text-xs text-muted-foreground">状态</div>
-                    <div class="font-medium">{{ lastRun?.result || '无' }}</div>
-                  </div>
-                  <div>
-                    <div class="text-xs text-muted-foreground">流量</div>
-                    <div class="font-medium">{{ lastRun?.bytes_consumed || '0 B' }}</div>
-                  </div>
-                  <div>
-                    <div class="text-xs text-muted-foreground">下载</div>
-                    <div class="font-medium">{{ lastRun?.download_count || 0 }}</div>
-                  </div>
-                  <div>
-                    <div class="text-xs text-muted-foreground">时间</div>
-                    <div class="truncate font-medium">{{ formatDateTime(lastRun?.timestamp) }}</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            </Card></TabsContent>
           </div>
-        </div>
-      </ScrollArea>
+        </ScrollArea>
+      </Tabs>
 
-      <DialogFooter class="m-0 px-6 py-4">
+      <DialogFooter class="m-0 flex-row flex-wrap px-6 py-4">
         <Button id="reset-config-btn" type="button" variant="outline" :disabled="saving" @click="$emit('reset')">
           <RotateCcwIcon data-icon="inline-start" />
           清空

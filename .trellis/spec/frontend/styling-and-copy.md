@@ -184,3 +184,18 @@ Reference files:
 - `frontend/src/components/dashboard/PlanPanel.vue`
 - `frontend/src/components/dashboard/ThreadPanel.vue`
 - `frontend/src/components/dashboard/LogHistoryPanel.vue`
+
+## Console Shell Navigation Convention
+
+The dashboard shell uses `#overview`, `#plans`, `#threads`, and `#logs` as stable
+client-side navigation targets. `App.vue` owns the active hash and keeps the
+single `useDashboard()` instance alive while sections switch, so polling,
+editor state, and command projections are not recreated by navigation. New
+sections should be added to `components/dashboard/navigation.ts` and render
+through the existing `SidebarProvider` rather than introducing a second router
+or page shell.
+
+The light theme uses semantic tokens (`--primary`, `--accent`, `--sidebar-*`)
+for the operational surface. Status, chart, and action colors must continue to
+resolve through tokens or shadcn variants; avoid raw color classes in product
+panels.

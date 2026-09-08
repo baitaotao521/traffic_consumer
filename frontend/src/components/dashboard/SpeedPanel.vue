@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue'
-import { RefreshCwIcon } from '@lucide/vue'
+import { ActivityIcon, RefreshCwIcon } from '@lucide/vue'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -89,113 +89,41 @@ const urlDistributionRows = computed(() => {
 </script>
 
 <template>
-  <Card class="min-h-[520px]">
-    <CardHeader class="border-b py-3">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <CardTitle>实时聚合图表</CardTitle>
-        <div class="flex flex-wrap items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                :aria-label="refreshing ? '刷新中' : '刷新趋势'"
-                :disabled="refreshing"
-                @click="$emit('refresh')"
-              >
-                <Spinner v-if="refreshing" data-icon="inline-start" />
-                <RefreshCwIcon v-else data-icon="inline-start" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{{ refreshing ? '刷新中' : '刷新趋势' }}</TooltipContent>
-          </Tooltip>
+  <div class="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.8fr)_minmax(300px,1fr)]">
+    <Card class="min-w-0 xl:col-span-2">
+      <CardHeader>
+        <CardTitle>流量趋势</CardTitle>
+        <CardDescription>所有任务的实时下载速率</CardDescription>
+        <CardAction>
+          <div class="flex items-center gap-3">
+            <Badge variant="secondary"><ActivityIcon data-icon="inline-start" />实时</Badge>
+            <Tooltip><TooltipTrigger as-child><Button size="icon-sm" variant="ghost" :aria-label="refreshing ? '刷新中' : '刷新趋势'" :disabled="refreshing" @click="$emit('refresh')"><Spinner v-if="refreshing" data-icon="inline-start" /><RefreshCwIcon v-else data-icon="inline-start" /></Button></TooltipTrigger><TooltipContent>刷新趋势</TooltipContent></Tooltip>
+          </div>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <div class="mb-5 flex items-baseline gap-3"><span class="text-2xl font-semibold tracking-tight tabular-nums">{{ currentSpeedLabel }}</span><span class="text-xs text-muted-foreground">当前速率</span></div>
+        <Suspense><DashboardChart chart-id="aggregate-speed-chart" type="line" label="下载速率" :labels="labels" :value-formatter="formatSpeedValue" :values="speedChartValues" :height="240" /><template #fallback><Skeleton class="h-[240px] w-full" /></template></Suspense>
+      </CardContent>
+    </Card>
+    <Card class="min-w-0">
+      <CardHeader><CardTitle>线程活跃度</CardTitle><CardDescription>活跃线程占总线程的比例</CardDescription><CardAction><Badge variant="outline">{{ threadActiveLabel }}</Badge></CardAction></CardHeader>
+      <CardContent><Suspense><DashboardChart chart-id="aggregate-thread-chart" type="line" label="线程活跃" :colors="['--chart-2']" :labels="labels" :value-formatter="formatPercentValue" :values="threadActiveChartValues" :height="190" :y-max="100" /><template #fallback><Skeleton class="h-[190px] w-full" /></template></Suspense></CardContent>
+    </Card>
+    <Card class="min-w-0">
+      <CardHeader><CardTitle>下载来源</CardTitle><CardDescription>各 URL 的下载次数与占比</CardDescription></CardHeader>
+      <CardContent>
+        <div class="flex min-w-0 flex-col items-center gap-4 min-[500px]:flex-row">
+          <div class="w-[170px] shrink-0"><Suspense><DashboardChart chart-id="aggregate-url-pie-chart" type="doughnut" label="URL" sub-label="次数 / 占比" :labels="urlChartLabels" :value-formatter="formatDownloadCount" :values="urlChartValues" :height="190" /><template #fallback><Skeleton class="h-[190px]" /></template></Suspense></div>
+          <div class="flex max-h-[190px] w-full min-w-0 flex-col gap-4 overflow-auto">
+            <p v-if="!urlDistributionRows.length" class="text-sm text-muted-foreground">暂无下载记录</p>
+            <div v-for="(item, index) in urlDistributionRows" :key="item.key" class="flex min-w-0 items-start gap-2">
+              <span class="mt-1 size-2 shrink-0 rounded-full" :style="{ background: `var(--chart-${index % 5 + 1})` }" />
+              <div class="min-w-0 flex-1"><Tooltip><TooltipTrigger as-child><p class="truncate text-xs" tabindex="0">{{ item.url }}</p></TooltipTrigger><TooltipContent class="max-w-[min(28rem,85vw)] break-all">{{ item.url }}</TooltipContent></Tooltip><div class="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>{{ item.countLabel }}</span><span class="tabular-nums">{{ item.percentageLabel }}</span></div></div>
+            </div>
+          </div>
         </div>
-      </div>
-    </CardHeader>
-    <CardContent class="grid gap-5 p-4">
-      <div class="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <div class="grid min-w-0 gap-5">
-          <section class="grid min-w-0 gap-2">
-            <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-              <span class="font-medium">当前速度</span>
-              <span class="font-mono font-medium tabular-nums">{{ currentSpeedLabel }}</span>
-            </div>
-            <Suspense>
-              <DashboardChart
-                chart-id="aggregate-speed-chart"
-                type="line"
-                label="当前速度"
-                :labels="labels"
-                :value-formatter="formatSpeedValue"
-                :values="speedChartValues"
-                :height="210"
-              />
-              <template #fallback>
-                <Skeleton class="h-[210px] w-full" />
-              </template>
-            </Suspense>
-          </section>
-
-          <section class="grid min-w-0 gap-2">
-            <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-              <span class="font-medium">线程活跃</span>
-              <span class="font-mono font-medium tabular-nums">{{ threadActiveLabel }}</span>
-            </div>
-            <Suspense>
-              <DashboardChart
-                chart-id="aggregate-thread-chart"
-                type="line"
-                label="线程活跃"
-                :colors="['--chart-2']"
-                :labels="labels"
-                :value-formatter="formatPercentValue"
-                :values="threadActiveChartValues"
-                :height="150"
-                :y-max="100"
-              />
-              <template #fallback>
-                <Skeleton class="h-[150px] w-full" />
-              </template>
-            </Suspense>
-          </section>
-        </div>
-
-        <section class="grid min-w-0 content-start justify-items-center gap-3">
-          <div class="w-full text-sm font-medium">
-            URL 分布
-          </div>
-          <div class="w-full max-w-[240px]">
-            <Suspense>
-              <DashboardChart
-                chart-id="aggregate-url-pie-chart"
-                type="doughnut"
-                label="URL"
-                sub-label="次数 / 占比"
-                :labels="urlChartLabels"
-                :value-formatter="formatDownloadCount"
-                :values="urlChartValues"
-                :height="240"
-              />
-              <template #fallback>
-                <Skeleton class="h-[240px] w-full" />
-              </template>
-            </Suspense>
-          </div>
-          <div v-if="urlDistributionRows.length" class="grid max-h-40 w-full gap-2 overflow-auto pr-1 text-xs">
-            <div
-              v-for="item in urlDistributionRows"
-              :key="item.key"
-              class="grid gap-1 rounded-md border bg-card px-2 py-1.5"
-            >
-              <span class="truncate text-muted-foreground">{{ item.url }}</span>
-              <div class="flex items-center justify-between gap-2">
-                <span class="font-mono font-medium tabular-nums">{{ item.countLabel }}</span>
-                <Badge variant="secondary">{{ item.percentageLabel }}</Badge>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </CardContent>
-  </Card>
+      </CardContent>
+    </Card>
+  </div>
 </template>

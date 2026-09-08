@@ -8,10 +8,15 @@ import { computed } from 'vue'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SidebarTrigger } from '@/components/ui/sidebar'
+import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import type { BadgeVariant } from '@/types'
 
 const props = defineProps<{
+  connectionError: boolean
+  pageLabel: string
+  loading: boolean
   statusLabel: string
   statusVariant: BadgeVariant
   isStopped: boolean
@@ -33,25 +38,26 @@ const statusDotClass = computed(() => {
 </script>
 
 <template>
-  <header class="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-    <div class="mx-auto flex max-w-[1600px] flex-col gap-3 px-6 py-3 lg:flex-row lg:items-center lg:justify-between">
+  <header class="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
+    <div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-7 lg:px-9">
       <div class="flex min-w-0 flex-wrap items-center gap-3">
-        <h1 class="text-base font-semibold">Traffic Consumer</h1>
-        <Badge :variant="statusVariant" class="gap-1.5">
+        <SidebarTrigger aria-label="切换导航" /><Separator orientation="vertical" class="h-5" /><span class="text-sm font-medium">{{ pageLabel }}</span>
+        <Badge v-if="!loading && !connectionError" :variant="statusVariant" class="gap-1.5">
           <span :class="cn('size-1.5 rounded-full', statusDotClass)" />
           {{ statusLabel }}
         </Badge>
+        <Badge v-else-if="connectionError" variant="destructive">连接中断</Badge>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <Button id="create-config-btn" variant="outline" @click="emit('createConfig')">
+        <Button id="create-config-btn" :disabled="loading" @click="emit('createConfig')">
           <PlusIcon data-icon="inline-start" />
           新建配置
         </Button>
         <Button
           id="stop-btn"
-          variant="destructive"
-          :disabled="isStopped"
+          variant="outline"
+          :disabled="loading || isStopped"
           @click="emit('stop')"
         >
           <SquareIcon data-icon="inline-start" />
@@ -60,7 +66,7 @@ const statusDotClass = computed(() => {
         <Button
           id="stop-scheduler-btn"
           variant="outline"
-          :disabled="!hasScheduler"
+          :disabled="loading || !hasScheduler"
           @click="emit('stopScheduler')"
         >
           <CalendarClockIcon data-icon="inline-start" />

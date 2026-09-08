@@ -1,84 +1,29 @@
 <script setup lang="ts">
-import { ActivityIcon, FileTextIcon, GaugeIcon, ListChecksIcon } from '@lucide/vue'
-
+import { ArrowDownToLineIcon, FilesIcon, GaugeIcon, LayersIcon } from '@lucide/vue'
+import { computed } from 'vue'
 import AnimatedMetric from '@/components/dashboard/AnimatedMetric.vue'
 import { Card, CardAction, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-defineProps<{
-  activeConfigCount: number
-  downloadCount: number
-  speed: string
-  totalBytes: string
-}>()
+const props = defineProps<{ activeConfigCount: number; downloadCount: number; speed: string; totalBytes: string }>()
+const metrics = computed(() => [
+  { id: 'speed-text', label: '实时速率', value: props.speed || '0 B/s', icon: GaugeIcon, note: '所有运行任务的聚合速率' },
+  { id: 'total-bytes', label: '累计消耗', value: props.totalBytes || '0 B', icon: LayersIcon, note: '当前运行累计下载流量' },
+  { id: 'download-count', label: '下载次数', value: props.downloadCount || 0, icon: ArrowDownToLineIcon, note: '当前运行累计下载次数' },
+  { id: 'current-config', label: '活动配置', value: props.activeConfigCount || 0, icon: FilesIcon, note: '运行中与调度中的配置' },
+])
 </script>
 
 <template>
-  <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-    <Card size="sm" class="min-h-[116px]">
+  <div class="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 xl:grid-cols-4">
+    <Card v-for="metric in metrics" :key="metric.id" class="min-w-0">
       <CardHeader>
-        <CardDescription>实时速率</CardDescription>
-        <CardAction>
-          <GaugeIcon class="size-4 text-muted-foreground" />
-        </CardAction>
+        <CardDescription>{{ metric.label }}</CardDescription>
+        <CardAction><div class="flex size-9 items-center justify-center rounded-lg bg-secondary text-primary"><component :is="metric.icon" class="size-[18px]" /></div></CardAction>
       </CardHeader>
       <CardContent>
-        <div id="speed-text" class="truncate text-2xl font-bold">{{ speed || '0 B/s' }}</div>
-      </CardContent>
-    </Card>
-
-    <Card size="sm" class="min-h-[116px]">
-      <CardHeader>
-        <CardDescription>总计流量</CardDescription>
-        <CardAction>
-          <ActivityIcon class="size-4 text-muted-foreground" />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <AnimatedMetric
-          id="total-bytes"
-          class="block truncate text-2xl font-bold tabular-nums"
-          :value="totalBytes || '0 B'"
-        />
-      </CardContent>
-    </Card>
-
-    <Card size="sm" class="min-h-[116px]">
-      <CardHeader>
-        <CardDescription>下载次数</CardDescription>
-        <CardAction>
-          <ListChecksIcon class="size-4 text-muted-foreground" />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <AnimatedMetric
-          id="download-count"
-          class="block truncate text-2xl font-bold tabular-nums"
-          :decimals="0"
-          :value="downloadCount || 0"
-        />
-      </CardContent>
-    </Card>
-
-    <Card size="sm" class="min-h-[116px]">
-      <CardHeader>
-        <CardDescription>活动配置</CardDescription>
-        <CardAction>
-          <FileTextIcon class="size-4 text-muted-foreground" />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <AnimatedMetric
-              id="current-config"
-              class="block truncate text-2xl font-bold tabular-nums"
-              :decimals="0"
-              :value="activeConfigCount || 0"
-            />
-          </TooltipTrigger>
-          <TooltipContent>运行与调度中的配置</TooltipContent>
-        </Tooltip>
+        <div v-if="metric.id === 'speed-text'" :id="metric.id" class="truncate text-3xl font-semibold tracking-tight tabular-nums">{{ metric.value }}</div>
+        <AnimatedMetric v-else :id="metric.id" class="block truncate text-3xl font-semibold tracking-tight tabular-nums" :value="metric.value" :decimals="typeof metric.value === 'number' ? 0 : undefined" />
+        <p class="mt-3 text-xs text-muted-foreground">{{ metric.note }}</p>
       </CardContent>
     </Card>
   </div>
