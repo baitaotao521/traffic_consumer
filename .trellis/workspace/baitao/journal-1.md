@@ -535,3 +535,37 @@ Built and smoke-tested a linux/amd64 Docker image, deployed it through Netcatty 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Redeploy Traffic Consumer with current frontend
+
+**Date**: 2026-09-09
+**Task**: Redeploy Traffic Consumer with current frontend
+**Branch**: `codex/go-http-backend-rewrite`
+
+### Summary
+
+Fixed the Docker clean-install lockfile, rebuilt the linux/amd64 image from the current frontend, deployed it to root@192.168.5.251 through Netcatty, preserved and verified persistent data, confirmed HTTP 200 for the dashboard and API, and retained rollback containers and a data backup.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6374499` | (see git log) |
+| `7b83084` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
