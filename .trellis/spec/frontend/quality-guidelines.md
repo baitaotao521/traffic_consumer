@@ -185,3 +185,79 @@ Before considering a frontend change done:
 - Creating a custom mini form layout instead of using `Field` components.
 - Making `frontend/dist` diffs without checking whether source changes and a
   build produced them.
+
+## Scenario: Reproducible Frontend Dependency Installation in Docker
+
+### 1. Scope / Trigger
+
+- Trigger: `frontend/package.json`, `frontend/package-lock.json`, the Node base
+  image, or frontend build dependencies change before a Docker release.
+- A local build that reuses `frontend/node_modules` is insufficient evidence
+  that the Dockerfile's clean install can be reproduced.
+
+### 2. Signatures
+
+The release boundary is the existing Dockerfile command:
+
+```dockerfile
+FROM node:22-alpine AS frontend-builder
+RUN npm ci
+```
+
+The matching validation command is:
+
+```bash
+docker buildx build --platform linux/amd64 --load -t traffic_consumer:verify .
+```
+
+### 3. Contracts
+
+- `frontend/package.json` and `frontend/package-lock.json` must be accepted by
+  the npm version bundled in `node:22-alpine`.
+- The lockfile must contain transitive optional packages for the Docker target,
+  including packages omitted by a host-specific install.
+- Regenerate the lockfile with Node 22/npm 10 in a clean directory when the
+  container reports missing lock entries; do not hand-edit integrity data.
+
+### 4. Validation & Error Matrix
+
+- Local `npm run build` passes but Docker `npm ci` reports `EUSAGE` and
+  `Missing: <package> from lock file` -> regenerate the lockfile using the
+  Dockerfile's Node/npm environment, then retry the clean install and image build.
+- Clean `npm ci` fails with a peer-dependency conflict -> resolve the declared
+  dependency versions; do not add `--force` to the Dockerfile.
+- Docker build passes only with an existing `node_modules` directory -> the
+  validation is invalid because `.dockerignore` and `npm ci` require a clean install.
+
+### 5. Good/Base/Bad Cases
+
+- Good: Node 22/npm 10 accepts the lockfile in a clean Linux/AMD64 directory,
+  then the complete Docker image builds.
+- Base: local TypeScript/Vite build and Docker build both pass without changing
+  the lockfile.
+- Bad: local build passes from cached dependencies while Docker release fails
+  because the lockfile lacks target-specific optional packages.
+
+### 6. Tests Required
+
+- Run `npm --prefix frontend run build` and assert TypeScript and Vite succeed.
+- Run a clean Node 22/npm 10 `npm ci` when repairing the lockfile.
+- Run the complete `docker buildx build --platform linux/amd64` command and
+  assert the frontend builder, Go builder, and final image export all succeed.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```bash
+# Reuses whatever is already installed on the developer machine.
+npm --prefix frontend run build
+# Assume the Docker release will therefore build.
+```
+
+#### Correct
+
+```bash
+npm --prefix frontend run build
+docker buildx build --platform linux/amd64 --load -t traffic_consumer:verify .
+```
